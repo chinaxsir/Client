@@ -34,84 +34,24 @@ jobs:
       - name: Verify Flutter
         run: flutter config --no-analytics && flutter doctor -v
 
-      # ========== 2. 生成 iOS 平台文件（保护 lib/ 不被覆盖）==========
+      # ========== 2. 生成 iOS 平台文件（保护 lib/）==========
       - name: Generate iOS platform
         run: |
-          # 备份 lib/ 目录（flutter create 可能覆盖 main.dart）
           cp -r lib lib_backup
-
-          # 生成 iOS 平台文件
           flutter create . --platforms=ios --project-name=xsop_forum
-
-          # 恢复 lib/ 目录（保护自定义代码不被 Flutter 默认模板覆盖）
           rm -rf lib
           mv lib_backup lib
-
-          # 确保依赖正确
           flutter pub get
-
-          # 验证 main.dart 内容
-          echo "=== Verifying main.dart ==="
-          head -5 lib/main.dart
-          echo "..."
-          grep -c "XSOPForumApp" lib/main.dart && echo "✅ main.dart contains XSOPForumApp" || echo "❌ WARNING: main.dart may be overwritten!"
 
       # ========== 3. 安装 CocoaPods ==========
       - name: Install pods
         working-directory: ios
         run: |
           rm -rf Pods Podfile.lock
-          pod install --repo-update 2>&1
-          echo "=== Pod install done ==="
-          ls -la Podfile.lock Pods 2>&1 || echo "WARNING: Podfile.lock or Pods missing"
-
-      # ========== 4. 替换 Podfile 注入 TrollStore 配置 ==========
-      # 用 Ruby 脚本修改已有的 post_install 块，而不是追加新的
-      - name: Patch Podfile for TrollStore
-        working-directory: ios
-        run: |
-          ruby <<'RUBY'
-          path = "Podfile"
-          content = File.read(path)
-
-          # 在 flutter_additional_ios_build_settings(target) 之后注入 TrollStore 配置
-          insertion = <<~INNER
-
-            # ===== TrollStore 扩展：关闭代码签名 =====
-            target.build_configurations.each do |config|
-              config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-              config.build_settings['EXPANDED_CODE_SIGN_IDENTITY'] = ''
-              config.build_settings['EXPANDED_CODE_SIGN_IDENTITY_PATH'] = ''
-              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ''
-              config.build_settings['DEVELOPMENT_TEAM'] = ''
-              config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
-              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.xsop.forum'
-            end
-          INNER
-
-          # 找到 flutter_additional_ios_build_settings(target) 这一行，在其后插入 TrollStore 配置
-          # 使用 gsub 替换该行，保持原行 + 追加内容
-          content.gsub!(
-            /(flutter_additional_ios_build_settings\(target\))/,
-            "\\1\n#{insertion.chomp}"
-          )
-
-          File.write(path, content)
-          puts "Podfile patched with TrollStore settings."
-          RUBY
-
-          echo "Podfile patched."
-
-      # 重新运行 pod install 使配置生效
-      - name: Re-install pods with TrollStore config
-        working-directory: ios
-        run: |
-          rm -rf Pods Podfile.lock
           pod install 2>&1
-          echo "=== Pod re-install done ==="
+          echo "=== Pod install done ==="
 
-      # ========== 5. 写入 Runner.entitlements ==========
+      # ========== 4. 写入 Runner.entitlements ==========
       - name: Write Runner.entitlements
         run: |
           cat > ios/Runner/Runner.entitlements <<'PLIST'
@@ -141,7 +81,7 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 6. 写入 Info.plist ==========
+      # ========== 5. 写入 Info.plist ==========
       - name: Write Info.plist
         run: |
           cat > ios/Runner/Info.plist <<'PLIST'
@@ -220,34 +160,14 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 7. 修改 Xcode 工程 ==========
-      - name: Configure Xcode Project
+      # ========== 6. 修改 Bundle ID（仅修改，不破坏结构）==========
+      - name: Set Bundle ID
         run: |
-          ruby <<'RUBY'
-          path = "ios/Runner.xcodeproj/project.pbxproj"
-          content = File.read(path)
+          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' ios/Runner.xcodeproj/project.pbxproj
+          echo "Bundle ID set."
 
-          # 替换 Bundle ID
-          content.gsub!(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/, 'PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;')
-
-          # 禁用签名
-          content.gsub!(/CODE_SIGNING_ALLOWED = YES;/, 'CODE_SIGNING_ALLOWED = NO;')
-          content.gsub!(/CODE_SIGNING_REQUIRED = YES;/, 'CODE_SIGNING_REQUIRED = NO;')
-
-          # 注入 Entitlements 引用
-          unless content.include?('CODE_SIGN_ENTITLEMENTS')
-            content.gsub!(/(\t\t\t\tCLANG_WARN_UNREACHABLE_CODE = YES;)/,
-              "\\1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;")
-          end
-
-          File.write(path, content)
-          puts "Project configured."
-          RUBY
-
-      # ========== 8. 使用 flutter build ipa 构建 ==========
-      # flutter build ipa 会自动处理 xcodebuild 和打包
-      # --no-codesign 跳过签名（TrollStore 自行签名）
-      - name: Build IPA with Flutter
+      # ========== 7. 使用 flutter build ipa 构建 ==========
+      - name: Build IPA
         run: |
           flutter build ipa \
             --no-codesign \
@@ -256,102 +176,34 @@ jobs:
             --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build.log
 
           if [ $? -ne 0 ]; then
-            echo "=== flutter build ipa failed ==="
-            tail -80 /tmp/flutter_build.log
-            echo ""
-            echo "=== Falling back to manual xcodebuild ==="
-            cd ios
-            xcodebuild \
-              -workspace Runner.xcworkspace \
-              -scheme Runner \
-              -configuration Release \
-              -sdk iphoneos \
-              -destination "generic/platform=iOS" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              ENABLE_BITCODE=NO \
-              PROVISIONING_PROFILE_SPECIFIER="" \
-              DEVELOPMENT_TEAM="" \
-              CODE_SIGN_STYLE=Automatic \
-              build 2>&1 | tee /tmp/xcodebuild.log
-
-            if [ $? -ne 0 ]; then
-              echo "=== xcodebuild also failed ==="
-              tail -80 /tmp/xcodebuild.log
-              exit 1
-            fi
-
-            # 找到 .app 并手动打包
-            APP_PATH=$(find build -name "*.app" | head -1)
-            if [ -z "$APP_PATH" ]; then
-              echo "ERROR: .app not found"
-              exit 1
-            fi
-
-            IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
-            mkdir -p "$IPA_OUT/Payload"
-            cp -r "$APP_PATH" "$IPA_OUT/Payload/"
-            cd "$IPA_OUT"
-            zip -r "${APP_NAME}_TrollStore.ipa" Payload/
-            cd "${GITHUB_WORKSPACE}"
-          fi
-
-      # ========== 9. 调试：打印所有构建产物 ==========
-      - name: Debug - List all build artifacts
-        run: |
-          echo "=== Searching for IPA files ==="
-          find . -name "*.ipa" 2>/dev/null || echo "No IPA found"
-
-          echo ""
-          echo "=== Searching for .app files ==="
-          find . -name "*.app" -type d 2>/dev/null || echo "No .app found"
-
-          echo ""
-          echo "=== Contents of build/ios/ ==="
-          ls -laR build/ios/ 2>/dev/null || echo "build/ios/ not found"
-
-          echo ""
-          echo "=== Contents of ios/build/ ==="
-          ls -laR ios/build/ 2>/dev/null || echo "ios/build/ not found"
-
-      # ========== 10. 确保 IPA 在正确位置 ==========
-      - name: Locate and package IPA
-        run: |
-          # flutter build ipa 默认输出到 build/ios/ipa/
-          IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
-          mkdir -p "$IPA_OUT"
-
-          # 1. 尝试从 flutter build ipa 输出复制
-          if ls build/ios/ipa/*.ipa 1>/dev/null 2>&1; then
-            echo "Copying IPA from flutter build..."
-            cp build/ios/ipa/*.ipa "$IPA_OUT/"
-          # 2. 尝试从 xcodebuild 输出打包
-          elif APP_PATH=$(find ios/build -name "*.app" -type d 2>/dev/null | head -1); [ -n "$APP_PATH" ]; then
-            echo "Packaging IPA from .app: $APP_PATH"
-            mkdir -p "$IPA_OUT/Payload"
-            cp -r "$APP_PATH" "$IPA_OUT/Payload/"
-            cd "$IPA_OUT"
-            zip -r "${APP_NAME}_TrollStore.ipa" Payload/
-            cd "${GITHUB_WORKSPACE}"
-          # 3. 尝试从 build/ 下查找
-          elif APP_PATH=$(find build -name "*.app" -type d 2>/dev/null | head -1); [ -n "$APP_PATH" ]; then
-            echo "Packaging IPA from build/ .app: $APP_PATH"
-            mkdir -p "$IPA_OUT/Payload"
-            cp -r "$APP_PATH" "$IPA_OUT/Payload/"
-            cd "$IPA_OUT"
-            zip -r "${APP_NAME}_TrollStore.ipa" Payload/
-            cd "${GITHUB_WORKSPACE}"
-          else
-            echo "ERROR: No IPA or .app found, cannot package"
+            echo "=== flutter build ipa FAILED ==="
+            tail -100 /tmp/flutter_build.log
             exit 1
           fi
 
-          echo ""
-          echo "=== Final IPA files ==="
-          ls -la "$IPA_OUT/" 2>/dev/null || echo "No IPA found!"
+          echo "=== flutter build ipa SUCCESS ==="
+          ls -la build/ios/ipa/
 
-      # ========== 11. 上传到 Artifacts ==========
+      # ========== 8. 复制到 ipa_output ==========
+      - name: Copy IPA to output
+        run: |
+          IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
+          mkdir -p "$IPA_OUT"
+
+          if ls build/ios/ipa/*.ipa 1>/dev/null 2>&1; then
+            cp build/ios/ipa/*.ipa "$IPA_OUT/"
+            echo "IPA copied successfully."
+            ls -la "$IPA_OUT/"
+          else
+            echo "ERROR: No IPA found in build/ios/ipa/"
+            echo "Contents of build/ios/:"
+            ls -laR build/ios/ 2>/dev/null || echo "build/ios/ not found"
+            echo "Searching for .app files..."
+            find . -name "*.app" -type d 2>/dev/null | head -5
+            exit 1
+          fi
+
+      # ========== 9. 上传到 Artifacts ==========
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -359,7 +211,7 @@ jobs:
           path: build/ipa_output/*.ipa
           retention-days: 90
 
-      # ========== 12. 上传到 GitHub Releases ==========
+      # ========== 10. 上传到 GitHub Releases（打 Tag 时）==========
       - name: Create Release and Upload IPA
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -371,7 +223,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ========== 13. 为手动触发创建 Release ==========
+      # ========== 11. 为手动触发创建 Draft Release ==========
       - name: Create Draft Release for Manual Trigger
         uses: softprops/action-gh-release@v1
         if: github.event_name == 'workflow_dispatch'
@@ -383,8 +235,3 @@ jobs:
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ========== 11. 清理 ==========
-      - name: Cleanup
-        if: always()
-        run: rm -rf ios/Pods ios/Podfile.lock ios/build

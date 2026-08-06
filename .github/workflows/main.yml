@@ -183,17 +183,33 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 7. 修改 Bundle ID ==========
-      - name: Set Bundle ID
+      # ========== 7. 修改 Bundle ID + 禁用代码签名 ==========
+      - name: Set Bundle ID and disable signing
         run: |
+          # 修改 Bundle ID
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' ios/Runner.xcodeproj/project.pbxproj
-          echo "Bundle ID set to com.xsop.forum"
 
-      # ========== 8. 主构建：flutter build ipa（官方推荐方式）==========
+          # 禁用代码签名（TrollStore 自行签名）
+          # 替换所有 CODE_SIGNING_ALLOWED = YES 为 NO
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES;/CODE_SIGNING_ALLOWED = NO;/g' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES;/CODE_SIGNING_REQUIRED = NO;/g' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = [^"]*;/DEVELOPMENT_TEAM = "";/g' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^"]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = [^"]*;/CODE_SIGN_IDENTITY = "";/g' ios/Runner.xcodeproj/project.pbxproj
+
+          echo "✅ Bundle ID set and code signing disabled"
+
+          # 验证关键配置
+          echo "=== Verifying signing settings ==="
+          grep "CODE_SIGNING_ALLOWED" ios/Runner.xcodeproj/project.pbxproj | head -3
+          grep "DEVELOPMENT_TEAM" ios/Runner.xcodeproj/project.pbxproj | head -3
+
+      # ========== 8. 主构建：flutter build ipa（官方推荐）+ fallback ==========
       - name: Build IPA with Flutter
         run: |
           # flutter build ipa 在 Flutter 3.29 中不支持 --output
           # 默认输出到 build/ios/ipa/
+          # --no-codesign 跳过签名（需配合 pbxproj 中的 CODE_SIGNING_ALLOWED=NO）
           flutter build ipa \
             --no-codesign \
             --obfuscate \
@@ -203,36 +219,91 @@ jobs:
 
           if [ "$FLUTTER_EXIT" -ne 0 ]; then
             echo "============================================"
-            echo "  flutter build ipa FAILED"
+            echo "  flutter build ipa FAILED - trying flutter build ios"
             echo "============================================"
-            tail -100 /tmp/flutter_build.log
-            exit 1
+            tail -30 /tmp/flutter_build.log
+
+            # Fallback: flutter build ios 生成 .app，手动打包
+            flutter build ios \
+              --no-codesign \
+              --obfuscate \
+              --split-debug-info=build/debug-info \
+              --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build_ios.log
+            IOS_EXIT=${PIPESTATUS[0]}
+
+            if [ "$IOS_EXIT" -ne 0 ]; then
+              echo "============================================"
+              echo "  flutter build ios ALSO FAILED"
+              echo "============================================"
+              tail -80 /tmp/flutter_build_ios.log
+              exit 1
+            fi
+
+            echo "============================================"
+            echo "  flutter build ios SUCCESS - packaging manually"
+            echo "============================================"
+
+            # 查找 .app 文件
+            APP_PATH=$(find build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+            if [ -z "$APP_PATH" ]; then
+              echo "ERROR: .app not found after flutter build ios!"
+              find . -name "*.app" -type d 2>/dev/null | head -5
+              exit 1
+            fi
+
+            echo "Found .app: $APP_PATH"
+
+            # 手动打包 IPA
+            OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+            mkdir -p "$OUTPUT_DIR"
+            APP_NAME=$(basename "$APP_PATH" .app)
+
+            STAGING="${GITHUB_WORKSPACE}/build/staging"
+            rm -rf "$STAGING"
+            mkdir -p "$STAGING/Payload"
+            cp -r "$APP_PATH" "$STAGING/Payload/"
+
+            cd "$STAGING"
+            zip -r "${APP_NAME}_TrollStore.ipa" Payload/
+            cd "${GITHUB_WORKSPACE}"
+
+            IPA_FILE="$OUTPUT_DIR/${APP_NAME}_TrollStore.ipa"
+            cp "$STAGING/${APP_NAME}_TrollStore.ipa" "$IPA_FILE"
+
+            echo "✅ Manual IPA created: $IPA_FILE"
+          else
+            echo "============================================"
+            echo "  flutter build ipa SUCCESS"
+            echo "============================================"
+
+            # flutter build ipa 默认输出到 build/ios/ipa/
+            echo "=== Looking for IPA in build/ios/ipa/ ==="
+            ls -la build/ios/ipa/ 2>/dev/null || echo "Directory not found"
+
+            # 查找所有 IPA 文件
+            echo "=== Searching all IPA files ==="
+            find . -name "*.ipa" 2>/dev/null
+
+            # 检查文件大小
+            IPA_FILE=$(find . -name "*.ipa" -not -path "*/.symlinks/*" 2>/dev/null | head -1)
+            if [ -z "$IPA_FILE" ]; then
+              echo "ERROR: No IPA file found!"
+              exit 1
+            fi
+
+            # 复制到 ipa_output 目录
+            OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+            mkdir -p "$OUTPUT_DIR"
+            cp "$IPA_FILE" "$OUTPUT_DIR/"
+            IPA_FILE="$OUTPUT_DIR/$(basename $IPA_FILE)"
+            echo "IPA copied to $OUTPUT_DIR"
           fi
 
-          echo "============================================"
-          echo "  flutter build ipa SUCCESS"
-          echo "============================================"
-
-          # flutter build ipa 默认输出到 build/ios/ipa/
-          echo "=== Looking for IPA in build/ios/ipa/ ==="
-          ls -la build/ios/ipa/ 2>/dev/null || echo "Directory not found"
-
-          # 查找所有 IPA 文件
-          echo "=== Searching all IPA files ==="
-          find . -name "*.ipa" 2>/dev/null
-
-          # 检查文件大小
-          IPA_FILE=$(find . -name "*.ipa" -not -path "*/.symlinks/*" 2>/dev/null | head -1)
-          if [ -z "$IPA_FILE" ]; then
-            echo "ERROR: No IPA file found!"
-            exit 1
-          fi
-
+          # 验证 IPA
           IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
           echo "IPA file: $IPA_FILE"
           echo "IPA size: $IPA_SIZE bytes"
 
-          # IPA 必须大于 15MB，否则是无效的空壳
           if [ "$IPA_SIZE" -lt 15728640 ]; then
             echo "ERROR: IPA is too small (${IPA_SIZE} bytes). A real Flutter app should be > 15MB."
             echo "This indicates the build produced an empty shell."
@@ -247,12 +318,6 @@ jobs:
           fi
 
           echo "✅ IPA size is valid (>15MB)"
-
-          # 复制到 ipa_output 目录
-          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
-          mkdir -p "$OUTPUT_DIR"
-          cp "$IPA_FILE" "$OUTPUT_DIR/"
-          echo "IPA copied to $OUTPUT_DIR"
           ls -la "$OUTPUT_DIR/"
 
       # ========== 9. 注入 TrollStore Entitlements ==========

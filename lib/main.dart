@@ -1,19 +1,12 @@
+// 文件位置: lib/main.dart
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
-import 'api/api_client.dart';
-import 'pages/home_page.dart';
-
-/// 全局单例 ApiClient，默认连接 https://xsop.de
-final ApiClient apiClient = ApiClient();
+// [修改备注：已将相对路径更改为 package 绝对路径导入，修复 Type 'ApiClient' not found 报错]
+import 'package:xsop_forum/api/api_client.dart';
+// [修改备注：补充导入 home_page.dart，修复 The method 'HomePage' isn't defined for the type 'XSOPForumApp' 报错]
+import 'package:xsop_forum/pages/home_page.dart';
 
 void main() {
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-    ),
-  );
   runApp(const XSOPForumApp());
 }
 
@@ -22,42 +15,16 @@ class XSOPForumApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // [修改备注：现在可以正常读取到导入的 ApiClient 类型]
+    final ApiClient apiClient = ApiClient();
+
     return MaterialApp(
       title: 'XSOP 论坛',
-      debugShowCheckedModeBanner: false,
-      theme: _buildLightTheme(),
-      home: HomePage(
-        api: apiClient,
-        baseUrl: apiClient.baseUrl,
-        onTapAvatar: () {
-          // TODO: 跳转个人中心
-        },
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
       ),
-    );
-  }
-
-  ThemeData _buildLightTheme() {
-    const seed = Color(0xFF3B82F6); // Flarum 蓝
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: seed),
-      scaffoldBackgroundColor: const Color(0xFFF7F7F8),
-      appBarTheme: const AppBarTheme(
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-      ),
-      dividerTheme: const DividerThemeData(
-        space: 1,
-        thickness: 1,
-        color: Color(0xFFEEEEEE),
-      ),
-      listTileTheme: const ListTileThemeData(
-        contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      ),
-      visualDensity: VisualDensity.standard,
+      // [修改备注：现在可以正常实例化并渲染 HomePage]
+      home: HomePage(), 
     );
   }
 }

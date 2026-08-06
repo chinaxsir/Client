@@ -1,0 +1,274 @@
+name: Build IPA for TrollStore
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: 'Flutter SDK version'
+        required: false
+        default: '3.29.0'
+
+env:
+  APP_NAME: XSOPForum
+  BUNDLE_ID: com.xsop.forum
+
+jobs:
+  build-ipa:
+    name: Build TrollStore IPA
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: bluefireteam/setup-flutter@v3
+        with:
+          channel: stable
+          version: ${{ github.event.inputs.flutter_version || '3.29.0' }}
+          cache: true
+
+      - name: Verify Flutter
+        run: flutter config --no-analytics && flutter doctor -v
+
+      # ========== 1. 创建/刷新 iOS 平台文件 ==========
+      # 如果 ios/ 目录已存在则跳过创建（保留自定义配置）
+      - name: Create iOS platform (if missing)
+        run: |
+          if [ ! -d "ios" ]; then
+            echo "ios/ not found, creating..."
+            flutter create . --platforms=ios
+          else
+            echo "ios/ already exists, skipping flutter create"
+            # 确保必要的 Flutter 生成文件存在
+            flutter pub get
+          fi
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # ========== 2. 安装 CocoaPods 依赖 ==========
+      - name: Install pods
+        working-directory: ios
+        run: |
+          # 移除旧的 Pods 和 Podfile.lock，确保干净的安装
+          rm -rf Pods Podfile.lock
+          pod install --repo-update
+
+      # ========== 3. 注入 TrollStore Entitlements ==========
+      - name: Inject Extended Entitlements
+        run: |
+          cat > ios/Runner/Runner.entitlements <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.developer.ubiquity-kvstore-access</key>
+              <true/>
+              <key>com.apple.developer.kernel.extended-virtual-address-space</key>
+              <true/>
+              <key>com.apple.security.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.developer.playable-content</key>
+              <true/>
+              <key>com.apple.developer.networking.wifi-info</key>
+              <true/>
+              <key>com.apple.developer.coremedia.hls.lowerlatency</key>
+              <true/>
+              <key>com.apple.developer.usb.host-device</key>
+              <true/>
+              <key>com.apple.developer.avfoundation.audio-fetch</key>
+              <true/>
+              <key>com.apple.developer.coremedia.hls.low-latency</key>
+              <true/>
+              <key>com.apple.security.files.user-selected.read-only</key>
+              <true/>
+              <key>com.apple.security.files.user-selected.read-write</key>
+              <true/>
+              <key>com.apple.developer.networking.raw-socket</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+          echo "Entitlements written."
+
+      # ========== 4. 修改 Info.plist ==========
+      - name: Configure Info.plist (Background Modes + Permissions)
+        run: |
+          PLIST="ios/Runner/Info.plist"
+
+          # 清空并重建（避免 Flutter 生成的默认内容与我们的扩展冲突）
+          /usr/libexec/PlistBuddy -c "Delete" "$PLIST" 2>/dev/null || true
+
+          # 基本元数据
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDevelopmentRegion string zh_CN" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string XSOP 论坛" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string \$(EXECUTABLE_NAME)" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string \$(PRODUCT_BUNDLE_IDENTIFIER)" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleInfoDictorVersion string 6.0" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleName string \$(PRODUCT_NAME)" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string APPL" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string \$(FLUTTER_BUILD_NAME)" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleSignature string '????'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string \$(FLUTTER_BUILD_NUMBER)" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :IPHONEOS_DEPLOYMENT_TARGET string 15.0" "$PLIST"
+
+          # 状态栏
+          /usr/libexec/PlistBuddy -c "Add :UIStatusBarStyle string UIStatusBarStyleDefault" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIViewControllerBasedStatusBarAppearance bool true" "$PLIST"
+
+          # ATS - 允许 HTTP
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$PLIST"
+
+          # 权限用途说明
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string '需要访问相册以上传头像'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string '需要使用相机拍照上传'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string '需要使用麦克风录制语音'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string '需要获取位置信息'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysUsageDescription string '需要后台持续获取位置'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string '需要持续获取位置信息'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string '需要蓝牙权限'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothPeripheralUsageDescription string '需要蓝牙外设权限'" "$PLIST"
+
+          # 后台模式（核心扩展）
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string fetch" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string remote-notification" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:3 string processing" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:4 string location" "$PLIST"
+
+          # 其他
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool false" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool false" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:1 string UIInterfaceOrientationLandscapeLeft" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations:2 string UIInterfaceOrientationLandscapeRight" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIRequiresFullScreen bool false" "$PLIST"
+
+          echo "Info.plist configured."
+
+      # ========== 5. 修改 Xcode 工程：禁签名 + 注入 Entitlements ==========
+      - name: Configure Xcode Project for TrollStore
+        run: |
+          # 使用 ruby 脚本修改 pbxproj（比 sed 更可靠）
+          ruby <<'RUBY'
+          project_path = "ios/Runner.xcodeproj/project.pbxproj"
+          content = File.read(project_path)
+
+          # 1. 替换 Bundle ID
+          content.gsub!(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/, 'PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;')
+
+          # 2. 禁用所有签名
+          content.gsub!(/CODE_SIGNING_ALLOWED = YES;/, 'CODE_SIGNING_ALLOWED = NO;')
+          content.gsub!(/CODE_SIGNING_REQUIRED = YES;/, 'CODE_SIGNING_REQUIRED = NO;')
+
+          # 3. 注入 CODE_SIGN_ENTITLEMENTS 到 Build Settings
+          # 查找 Release 配置段并添加
+          unless content.include?('CODE_SIGN_ENTITLEMENTS')
+            # 在每个 buildConfiguration 块中添加
+            content.gsub!(/(\t\t\t\tCLANG_WARN_UNREACHABLE_CODE = YES;)/,
+              "\\1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;")
+          end
+
+          File.write(project_path, content)
+          puts "Project configured."
+          RUBY
+
+      # ========== 6. 构建 .app（不签名）==========
+      - name: Build .app (No-Codesign)
+        run: |
+          cd ios
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ENABLE_BITCODE=NO \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_STYLE=Automatic \
+            build 2>&1 | tee /tmp/xcodebuild.log
+
+          # 检查结果
+          if [ $? -ne 0 ]; then
+            echo "=== xcodebuild failed, last 50 lines ==="
+            tail -50 /tmp/xcodebuild.log
+            exit 1
+          fi
+
+          # 找到 .app
+          APP_PATH=$(find build -name "*.app" -path "*/Release-iphoneos/*" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find build -name "*.app" | head -1)
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app not found after build"
+            exit 1
+          fi
+          echo "Found .app: $APP_PATH"
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+
+      # ========== 7. 打包 IPA ==========
+      - name: Package IPA
+        run: |
+          APP_PATH=$(find ios/build -name "*.app" -path "*/Release-iphoneos/*" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ios/build -name "*.app" | head -1)
+          fi
+
+          IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
+          mkdir -p "$IPA_OUT/Payload"
+          cp -r "$APP_PATH" "$IPA_OUT/Payload/"
+
+          cd "$IPA_OUT"
+          zip -r "${APP_NAME}_TrollStore.ipa" Payload/
+          cd "${GITHUB_WORKSPACE}"
+
+          IPA_FILE="${IPA_OUT}/${APP_NAME}_TrollStore.ipa"
+          echo "IPA created: $IPA_FILE"
+          ls -la "$IPA_FILE"
+
+      # ========== 8. 打包 .app.zip ==========
+      - name: Package .app.zip
+        run: |
+          APP_PATH=$(find ios/build -name "*.app" -path "*/Release-iphoneos/*" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ios/build -name "*.app" | head -1)
+          fi
+
+          APP_OUT="${GITHUB_WORKSPACE}/build/app_output"
+          mkdir -p "$APP_OUT"
+          APP_BASENAME=$(basename "$APP_PATH")
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$APP_OUT/${APP_BASENAME}.zip"
+          echo "App zip created: $APP_OUT/${APP_BASENAME}.zip"
+
+      # ========== 9. 上传产物 ==========
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrollStore-IPA
+          path: build/ipa_output/*.ipa
+          retention-days: 90
+
+      - name: Upload .app.zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrollStore-App
+          path: build/app_output/*.zip
+          retention-days: 90
+
+      # ========== 10. 清理工作空间（可选）==========
+      - name: Cleanup Cache
+        if: always()
+        run: |
+          rm -rf ios/Pods ios/Podfile.lock ios/build
+          echo "Cleanup done."

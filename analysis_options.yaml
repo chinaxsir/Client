@@ -1,0 +1,8 @@
+# Flutter 配置 —— 由 flutter create 生成
+# 在 GitHub Actions 中会被自动生成
+
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_single_quotes: true

@@ -35,11 +35,10 @@ jobs:
         run: flutter config --no-analytics && flutter doctor -v
 
       # ========== 1. 生成完整 iOS 工程 ==========
-      # 关键：始终执行 flutter create，它不会覆盖已存在的自定义文件
-      # 但会生成 .xcodeproj、.xcworkspace、Flutter/ 等必需文件
+      # 关键：始终执行 flutter create，显式指定项目名避免目录名中的点号导致校验失败
       - name: Generate iOS platform
         run: |
-          flutter create . --platforms=ios
+          flutter create . --platforms=ios --project-name=xsop_forum
           flutter pub get
 
       # ========== 2. 安装 CocoaPods 依赖 ==========

@@ -34,77 +34,42 @@ jobs:
       - name: Verify Flutter
         run: flutter config --no-analytics && flutter doctor -v
 
-      # ========== 2. 保存自定义 lib/ 代码 ==========
-      - name: Backup lib
+      # ========== 2. 备份 lib/ 和 pubspec.yaml ==========
+      - name: Backup source code
         run: |
-          # 保存原始 lib/ 代码，防止 flutter create 覆盖
-          tar cf lib_backup.tar lib/
-          echo "lib/ backed up"
+          tar cf src_backup.tar lib/ pubspec.yaml
+          echo "Source backed up"
           ls -la lib/
 
-      # ========== 3. 生成 iOS 平台文件（全新生成，避免冲突）==========
-      - name: Generate iOS platform
+      # ========== 3. 生成 iOS 平台 + 恢复源码 ==========
+      - name: Generate iOS and restore source
         run: |
-          # 先删除旧的 ios/ 目录，确保 flutter create 生成干净的工程
           rm -rf ios/
-          echo "Old ios/ directory removed"
-
           flutter create . --platforms=ios --project-name=xsop_forum 2>&1
 
-          # 恢复自定义 lib/ 代码
-          rm -rf lib/
-          tar xf lib_backup.tar
-          echo "lib/ restored"
+          # 恢复自定义代码
+          rm -rf lib/ pubspec.yaml
+          tar xf src_backup.tar
 
-          # 验证 main.dart 是否包含自定义代码
+          # 验证
           if grep -q "XSOPForumApp" lib/main.dart; then
-            echo "✅ main.dart contains custom code"
+            echo "✅ main.dart verified"
           else
-            echo "❌ main.dart was overwritten by flutter create!"
+            echo "❌ main.dart was overwritten!"
             cat lib/main.dart
             exit 1
           fi
 
           flutter pub get
 
-      # ========== 4. 安装 CocoaPods 依赖 ==========
+      # ========== 4. 安装 CocoaPods ==========
       - name: Install pods
         working-directory: ios
         run: |
           rm -rf Pods Podfile.lock
-          pod install 2>&1 | tail -20
+          pod install 2>&1 | tail -30
 
-      # ========== 5. 写入 TrollStore 扩展权限 ==========
-      - name: Write Runner.entitlements
-        run: |
-          cat > ios/Runner/Runner.entitlements <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>com.apple.developer.ubiquity-kvstore-access</key>
-              <true/>
-              <key>com.apple.developer.kernel.extended-virtual-address-space</key>
-              <true/>
-              <key>com.apple.security.allow-unsigned-executable-memory</key>
-              <true/>
-              <key>com.apple.developer.playable-content</key>
-              <true/>
-              <key>com.apple.developer.networking.wifi-info</key>
-              <true/>
-              <key>com.apple.developer.usb.host-device</key>
-              <true/>
-              <key>com.apple.developer.avfoundation.audio-fetch</key>
-              <true/>
-              <key>com.apple.security.files.user-selected.read-only</key>
-              <true/>
-              <key>com.apple.security.files.user-selected.read-write</key>
-              <true/>
-          </dict>
-          </plist>
-          PLIST
-
-      # ========== 6. 写入 Info.plist ==========
+      # ========== 5. 写入 Info.plist ==========
       - name: Write Info.plist
         run: |
           cat > ios/Runner/Info.plist <<'PLIST'
@@ -183,38 +148,38 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 7. 修改 Bundle ID + 禁用代码签名 ==========
-      - name: Set Bundle ID and disable signing
+      # ========== 6. 修改 pbxproj：Bundle ID + 禁用签名 ==========
+      - name: Configure Xcode project
         run: |
-          # 修改 Bundle ID
-          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' ios/Runner.xcodeproj/project.pbxproj
+          PROJ="ios/Runner.xcodeproj/project.pbxproj"
 
-          # 禁用代码签名（TrollStore 自行签名）
-          # 替换所有 CODE_SIGNING_ALLOWED = YES 为 NO
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES;/CODE_SIGNING_ALLOWED = NO;/g' ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES;/CODE_SIGNING_REQUIRED = NO;/g' ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/DEVELOPMENT_TEAM = [^"]*;/DEVELOPMENT_TEAM = "";/g' ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^"]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_IDENTITY = [^"]*;/CODE_SIGN_IDENTITY = "";/g' ios/Runner.xcodeproj/project.pbxproj
+          # Bundle ID
+          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' "$PROJ"
 
-          echo "✅ Bundle ID set and code signing disabled"
+          # 禁用签名
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES;/CODE_SIGNING_ALLOWED = NO;/g' "$PROJ"
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES;/CODE_SIGNING_REQUIRED = NO;/g' "$PROJ"
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' "$PROJ"
+          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' "$PROJ"
+          sed -i '' 's/CODE_SIGN_IDENTITY = [^;]*;/CODE_SIGN_IDENTITY = "";/g' "$PROJ"
+          sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY = [^;]*;/EXPANDED_CODE_SIGN_IDENTITY = "";/g' "$PROJ"
+          sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY_PATH = [^;]*;/EXPANDED_CODE_SIGN_IDENTITY_PATH = "";/g' "$PROJ"
+          sed -i '' 's/CODE_SIGN_STYLE = [^;]*;/CODE_SIGN_STYLE = Automatic;/g' "$PROJ"
 
-          # 验证关键配置
-          echo "=== Verifying signing settings ==="
-          grep "CODE_SIGNING_ALLOWED" ios/Runner.xcodeproj/project.pbxproj | head -3
-          grep "DEVELOPMENT_TEAM" ios/Runner.xcodeproj/project.pbxproj | head -3
+          echo "✅ Project configured"
+          echo "=== Verifying ==="
+          grep "PRODUCT_BUNDLE_IDENTIFIER" "$PROJ" | head -2
+          grep "CODE_SIGNING_ALLOWED" "$PROJ" | head -2
+          grep "DEVELOPMENT_TEAM" "$PROJ" | head -2
 
-      # ========== 8. 主构建：xcodebuild 直接编译（绕过 Flutter 签名检查）==========
-      - name: Build with xcodebuild
+      # ========== 7. xcodebuild 编译 .app ==========
+      - name: Build .app with xcodebuild
         run: |
-          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+          BUILD_DIR="${GITHUB_WORKSPACE}/build/ios"
+          DERIVED="${GITHUB_WORKSPACE}/build/DerivedData"
 
-          # 使用 xcodebuild 直接编译，完全绕过 Flutter 的签名检查
-          # 通过命令行参数禁用所有签名
           cd ios
-
-          # 清理旧构建
-          rm -rf build/
+          rm -rf build/ "$DERIVED"
 
           xcodebuild \
             -workspace Runner.xcworkspace \
@@ -222,10 +187,12 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -archivePath build/Runner.xcarchive \
+            -derivedDataPath "$DERIVED" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            EXPANDED_CODE_SIGN_IDENTITY="" \
+            EXPANDED_CODE_SIGN_IDENTITY_PATH="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             CODE_SIGN_STYLE=Automatic \
@@ -239,7 +206,11 @@ jobs:
             echo "============================================"
             echo "  xcodebuild FAILED"
             echo "============================================"
-            tail -80 /tmp/xcodebuild.log
+            tail -100 /tmp/xcodebuild.log
+            echo ""
+            echo "=== Looking for .app anyway ==="
+            cd "${GITHUB_WORKSPACE}"
+            find . -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -5
             exit 1
           fi
 
@@ -247,41 +218,113 @@ jobs:
           echo "  xcodebuild SUCCESS"
           echo "============================================"
 
-          # 查找 .app 文件
-          echo "=== Searching for .app ==="
+          # 查找 .app（在 DerivedData 中）
           cd "${GITHUB_WORKSPACE}"
-          find . -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -10
+          echo "=== Searching for .app ==="
+          find "$DERIVED" -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -5
+          find build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -5
 
-          APP_PATH=$(find build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          # 在 DerivedData 中查找
+          APP_PATH=$(find "$DERIVED" -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+
+          # 如果 DerivedData 没找到，在 build/ 中找
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          fi
+
+          # 最后在 ios/build/ 中找
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ios/build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          fi
+
           if [ -z "$APP_PATH" ]; then
             echo "ERROR: .app not found!"
+            echo "=== All .app files ==="
             find . -name "*.app" -type d 2>/dev/null
+            echo "=== Directory structure ==="
+            ls -la build/ 2>/dev/null
+            ls -la ios/build/ 2>/dev/null
+            ls -la "$DERIVED" 2>/dev/null
             exit 1
           fi
 
           echo "Found .app: $APP_PATH"
           echo "App size: $(du -sh "$APP_PATH" 2>/dev/null | cut -f1)"
 
-          # 检查 Frameworks
+          # 验证 .app 结构
           if [ -d "$APP_PATH/Frameworks" ]; then
-            FW_COUNT=$(ls "$APP_PATH/Frameworks/" 2>/dev/null | wc -l)
-            echo "Frameworks count: $FW_COUNT"
-          fi
-
-          # 检查可执行文件
-          APP_BIN_NAME=$(basename "$APP_PATH" .app)
-          if [ -f "$APP_PATH/$APP_BIN_NAME" ]; then
-            echo "Executable found: $APP_PATH/$APP_BIN_NAME"
-            echo "Executable size: $(du -sh "$APP_PATH/$APP_BIN_NAME" 2>/dev/null | cut -f1)"
+            echo "Frameworks: $(ls "$APP_PATH/Frameworks/" 2>/dev/null | wc -l) items"
           else
-            echo "WARNING: Executable not found at $APP_PATH/$APP_BIN_NAME"
-            ls -la "$APP_PATH/" | head -10
+            echo "WARNING: No Frameworks dir"
           fi
 
-          # 手动打包 IPA
-          mkdir -p "$OUTPUT_DIR"
-          APP_NAME=$(basename "$APP_PATH" .app)
+          APP_BIN=$(basename "$APP_PATH" .app)
+          if [ -f "$APP_PATH/$APP_BIN" ]; then
+            echo "Executable: $APP_PATH/$APP_BIN ($(du -sh "$APP_PATH/$APP_BIN" 2>/dev/null | cut -f1))"
+          else
+            echo "WARNING: No executable at $APP_PATH/$APP_BIN"
+            ls -la "$APP_PATH/" | head -15
+          fi
 
+      # ========== 8. 打包 IPA + 注入 Entitlements ==========
+      - name: Package IPA with Entitlements
+        run: |
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+          DERIVED="${GITHUB_WORKSPACE}/build/DerivedData"
+
+          # 重新定位 .app（跨 step 路径保持一致）
+          APP_PATH=$(find "$DERIVED" -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          fi
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ios/build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app not found in any location!"
+            find . -name "*.app" -type d 2>/dev/null
+            exit 1
+          fi
+
+          echo "Using .app: $APP_PATH"
+
+          # 创建 entitlements 文件
+          cat > ios/Runner/Runner.entitlements <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.developer.ubiquity-kvstore-access</key>
+              <true/>
+              <key>com.apple.developer.kernel.extended-virtual-address-space</key>
+              <true/>
+              <key>com.apple.security.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.developer.playable-content</key>
+              <true/>
+              <key>com.apple.developer.networking.wifi-info</key>
+              <true/>
+              <key>com.apple.developer.usb.host-device</key>
+              <true/>
+              <key>com.apple.developer.avfoundation.audio-fetch</key>
+              <true/>
+              <key>com.apple.security.files.user-selected.read-only</key>
+              <true/>
+              <key>com.apple.security.files.user-selected.read-write</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # 将 entitlements 复制到 .app 内
+          APP_NAME=$(basename "$APP_PATH" .app)
+          cp ios/Runner/Runner.entitlements "$APP_PATH/"
+          cp ios/Runner/Runner.entitlements "$APP_PATH/${APP_NAME}.entitlements"
+          echo "Entitlements injected into .app"
+
+          # 打包 IPA
+          mkdir -p "$OUTPUT_DIR"
           STAGING="${GITHUB_WORKSPACE}/build/staging"
           rm -rf "$STAGING"
           mkdir -p "$STAGING/Payload"
@@ -294,83 +337,25 @@ jobs:
           IPA_FILE="$OUTPUT_DIR/${APP_NAME}_TrollStore.ipa"
           cp "$STAGING/${APP_NAME}_TrollStore.ipa" "$IPA_FILE"
 
-          # 验证 IPA
+          # 验证
           IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
           echo "IPA file: $IPA_FILE"
           echo "IPA size: $IPA_SIZE bytes"
 
           if [ "$IPA_SIZE" -lt 15728640 ]; then
-            echo "ERROR: IPA is too small (${IPA_SIZE} bytes). A real Flutter app should be > 15MB."
+            echo "ERROR: IPA too small (${IPA_SIZE} bytes). Must be > 15MB."
+            echo "=== .app structure ==="
+            echo "App size: $(du -sh "$APP_PATH" 2>/dev/null | cut -f1)"
+            ls -la "$APP_PATH/" | head -15
             exit 1
           fi
 
-          echo "✅ IPA created successfully (>15MB)"
+          echo "✅ IPA created successfully"
           echo "=== IPA contents ==="
           unzip -l "$IPA_FILE" | head -30
           ls -la "$OUTPUT_DIR/"
 
-      # ========== 9. 注入 TrollStore Entitlements ==========
-      # flutter build ipa 不会自动将 .entitlements 文件打入 .app 包
-      # 这里手动解压 IPA → 注入 entitlements → 重新打包
-      - name: Inject Entitlements into IPA
-        run: |
-          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
-          IPA_FILE=$(ls "$OUTPUT_DIR"/*.ipa 2>/dev/null | head -1)
-
-          if [ -z "$IPA_FILE" ]; then
-            echo "ERROR: No IPA found in $OUTPUT_DIR"
-            exit 1
-          fi
-
-          echo "Injecting entitlements into: $IPA_FILE"
-
-          # 创建临时目录
-          ENT_DIR="${GITHUB_WORKSPACE}/build/entitlements_work"
-          rm -rf "$ENT_DIR"
-          mkdir -p "$ENT_DIR"
-
-          # 解压 IPA (IPA 本质是 zip)
-          cd "$ENT_DIR"
-          unzip -o "$IPA_FILE" -d . > /dev/null 2>&1
-
-          # 找到 .app 目录
-          APP_PATH=$(find . -name "*.app" -type d | head -1)
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: .app not found in IPA!"
-            ls -la
-            exit 1
-          fi
-
-          echo "App path in IPA: $APP_PATH"
-
-          # 将 entitlements 文件复制到 .app 目录
-          # TrollStore 会自动查找 .app 内的 .entitlements 文件
-          cp "${GITHUB_WORKSPACE}/ios/Runner/Runner.entitlements" "$APP_PATH/"
-
-          # 同时创建一个与 App 同名的 entitlements 文件（TrollStore 也会查找）
-          APP_NAME=$(basename "$APP_PATH" .app)
-          cp "${GITHUB_WORKSPACE}/ios/Runner/Runner.entitlements" "$APP_PATH/${APP_NAME}.entitlements"
-
-          echo "Entitlements injected:"
-          ls -la "$APP_PATH/"*.entitlements 2>/dev/null
-
-          # 重新打包 IPA
-          rm -f "$IPA_FILE"
-          zip -r "$IPA_FILE" . -x "*.DS_Store"
-
-          # 验证
-          IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
-          echo "Repackaged IPA size: $IPA_SIZE bytes"
-
-          if [ "$IPA_SIZE" -lt 15728640 ]; then
-            echo "ERROR: Repackaged IPA is too small!"
-            exit 1
-          fi
-
-          cd "${GITHUB_WORKSPACE}"
-          echo "✅ Entitlements injected successfully"
-
-      # ========== 10. 上传到 Artifacts ==========
+      # ========== 9. 上传 Artifacts ==========
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -378,7 +363,7 @@ jobs:
           path: build/ipa_output/*.ipa
           retention-days: 90
 
-      # ========== 11. 上传到 GitHub Releases（打 Tag 时）==========
+      # ========== 10. 上传到 GitHub Releases（Tag 触发）==========
       - name: Create Release and Upload IPA
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -390,7 +375,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ========== 12. 为手动触发创建 Draft Release ==========
+      # ========== 11. 手动触发创建 Draft Release ==========
       - name: Create Draft Release for Manual Trigger
         uses: softprops/action-gh-release@v1
         if: github.event_name == 'workflow_dispatch'

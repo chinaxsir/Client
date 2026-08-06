@@ -66,8 +66,13 @@ jobs:
       - name: Install pods
         working-directory: ios
         run: |
-          rm -rf Pods Podfile.lock
-          pod install 2>&1 | tail -30
+          # [修改备注：增加了 Podfile 存在性检查，避免没有原生依赖时 pod install 找不到文件而报错]
+          if [ -f "Podfile" ]; then
+            rm -rf Pods Podfile.lock
+            pod install 2>&1 | tail -30
+          else
+            echo "✅ No Podfile found, skipping CocoaPods installation."
+          fi
 
       # ========== 5. 写入 Info.plist ==========
       - name: Write Info.plist
@@ -148,31 +153,26 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 6. 修改 pbxproj：Bundle ID + 假 Team ID + 禁用签名 ==========
+      # ========== 6. 修改构建配置：Bundle ID + 强制免签 ==========
       - name: Configure Xcode project
         run: |
           PROJ="ios/Runner.xcodeproj/project.pbxproj"
 
-          # Bundle ID
+          # 仅替换必定存在的 Bundle ID
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' "$PROJ"
 
-          # 设置假的 Team ID（Flutter 构建需要非空 Team ID，--no-codesign 不会真正签名）
-          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "ABCDE12345";/g' "$PROJ"
+          # [修改备注：弃用 sed 修改 pbxproj 的方式。改用直接向 Flutter 的 xcconfig 文件追加构建变量的方式。这能强制覆盖 Xcode 的签名要求，避免因全新项目缺少字段导致 sed 替换失败]
+          XCCONFIG="ios/Flutter/Release.xcconfig"
+          echo "DEVELOPMENT_TEAM = ABCDE12345" >> "$XCCONFIG"
+          echo "CODE_SIGNING_ALLOWED = NO" >> "$XCCONFIG"
+          echo "CODE_SIGNING_REQUIRED = NO" >> "$XCCONFIG"
+          echo "CODE_SIGN_IDENTITY = -" >> "$XCCONFIG"
+          echo "EXPANDED_CODE_SIGN_IDENTITY = -" >> "$XCCONFIG"
+          echo "PROVISIONING_PROFILE_SPECIFIER = \"\"" >> "$XCCONFIG"
 
-          # 禁用签名
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES;/CODE_SIGNING_ALLOWED = NO;/g' "$PROJ"
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES;/CODE_SIGNING_REQUIRED = NO;/g' "$PROJ"
-          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' "$PROJ"
-          sed -i '' 's/CODE_SIGN_IDENTITY = [^;]*;/CODE_SIGN_IDENTITY = "";/g' "$PROJ"
-          sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY = [^;]*;/EXPANDED_CODE_SIGN_IDENTITY = "";/g' "$PROJ"
-          sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY_PATH = [^;]*;/EXPANDED_CODE_SIGN_IDENTITY_PATH = "";/g' "$PROJ"
-          sed -i '' 's/CODE_SIGN_STYLE = [^;]*;/CODE_SIGN_STYLE = Automatic;/g' "$PROJ"
-
-          echo "✅ Project configured"
-          echo "=== Verifying ==="
-          grep "PRODUCT_BUNDLE_IDENTIFIER" "$PROJ" | head -2
-          grep "CODE_SIGNING_ALLOWED" "$PROJ" | head -2
-          grep "DEVELOPMENT_TEAM" "$PROJ" | head -2
+          echo "✅ Project configured via xcconfig"
+          echo "=== Verifying xcconfig ==="
+          tail -n 6 "$XCCONFIG"
 
       # ========== 7. flutter build ios（编译 Dart + 生成 .app）==========
       - name: Build .app with Flutter
@@ -290,12 +290,10 @@ jobs:
           </plist>
           PLIST
 
-          # [修改备注: 增加了 ldid 工具的安装，因为针对巨魔的无沙盒权限需要硬核注入到 Mach-O 可执行文件中]
           brew install ldid
 
           APP_NAME=$(basename "$APP_PATH" .app)
           
-          # [修改备注: 移除了无效的单纯文件拷贝操作 (cp)，替换为使用 ldid 将权限真正的伪签名并附加进 .app 内部]
           ldid -Sios/Runner/Runner.entitlements "$APP_PATH/"
           echo "✅ Entitlements signed into .app using ldid"
 
@@ -333,7 +331,6 @@ jobs:
 
       # ========== 10. 上传到 GitHub Releases（Tag 触发）==========
       - name: Create Release and Upload IPA
-        # [修改备注: 升级了 softprops/action-gh-release 的版本，从 @v1 升级到 @v2，以修复 GitHub Actions Node 16 的报错警告]
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
@@ -346,7 +343,6 @@ jobs:
 
       # ========== 11. 手动触发创建 Draft Release ==========
       - name: Create Draft Release for Manual Trigger
-        # [修改备注: 同样升级到 @v2]
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'workflow_dispatch'
         with:

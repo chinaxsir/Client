@@ -5,10 +5,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      node_version: # [修改位置]：原为 flutter_version，已修改为 node_version
+      node_version: 
         description: 'Node.js version'
         required: false
-        default: '20'
+        default: '24' # [修改位置]：将原先的 '20' 修改为 '24'。 [修改备注]：为了适配 GitHub Actions 最新运行环境的要求，消除 Node.js 20 弃用的警告。
 
 env:
   APP_NAME: XSOPForum
@@ -24,24 +24,20 @@ jobs:
         uses: actions/checkout@v4
 
       # ========== 1. 设置构建环境 ==========
-      # [修改位置]：原先的 Flutter setup 替换为 Node.js
-      # [修改备注]：匹配 XSOP-Forum 的 React Native 和 Expo 技术栈
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ github.event.inputs.node_version || '20' }}
-          cache: 'npm'
+          node-version: ${{ github.event.inputs.node_version || '24' }} # [修改位置]：原先的 '20' 改为 '24'。
+          # [修改位置]：删除了原先这里的 `cache: 'npm'`。 
+          # [修改备注]：由于你的项目中没有提交 package-lock.json 或 yarn.lock 文件，强制开启缓存会导致寻径失败报错。移除此行后即可顺利往下安装依赖。
 
       # ========== 2. 生成 iOS 平台文件 ==========
-      # [修改位置]：原先的 flutter create 替换为 expo prebuild
-      # [修改备注]：执行 prebuild 动态生成完整的 iOS 原生工程以供后续编译
       - name: Install dependencies & Prebuild
         run: |
           npm install
           npx expo prebuild --platform ios --clean
 
       # ========== 3. 安装 CocoaPods ==========
-      # [修改位置]：保持不变，但在 prebuild 生成 ios 目录后执行
       - name: Install pods
         working-directory: ios
         run: |
@@ -49,8 +45,6 @@ jobs:
           echo "=== Pod install done ==="
 
       # ========== 4. 写入 TrollStore 权限 ==========
-      # [修改位置]：替换了原先的 cat 硬覆盖 Runner.entitlements 的方式
-      # [修改备注]：改为动态查找 entitlements 文件并使用 PlistBuddy 追加巨魔核心权限，避免破坏 Expo 原有配置结构
       - name: Write Entitlements
         run: |
           ENTITLEMENTS_PATH=$(find ios -name "*.entitlements" | head -n 1)
@@ -65,8 +59,6 @@ jobs:
           fi
 
       # ========== 5. 修改 Bundle ID ==========
-      # [修改位置]：更新了 sed 的查找路径
-      # [修改备注]：动态匹配生成的 project.pbxproj 以修改 Bundle ID
       - name: Set Bundle ID
         run: |
           PBXPROJ_PATH=$(find ios -name "project.pbxproj" | head -n 1)
@@ -76,8 +68,6 @@ jobs:
           fi
 
       # ========== 6. 使用 xcodebuild 构建 ==========
-      # [修改位置]：原 flutter build ipa 替换为原生 xcodebuild
-      # [修改备注]：完全禁用代码签名验证，并将产物输出到指定的 derivedDataPath 目录，方便下一步精确提取 .app
       - name: Build App (No Codesign)
         working-directory: ios
         run: |
@@ -94,8 +84,6 @@ jobs:
             build | xcpretty || true
 
       # ========== 7. 打包为 TrollStore IPA ==========
-      # [修改位置]：重写了打包和复制的逻辑
-      # [修改备注]：这是巨魔无签名打包最容易踩坑的地方，此步骤主动创建 Payload 文件夹装载无签名 .app，然后压缩生成能被巨魔识别的 .ipa 最终文件
       - name: Package to IPA
         run: |
           IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
@@ -124,8 +112,6 @@ jobs:
           retention-days: 90
 
       # ========== 9. 上传到 GitHub Releases ==========
-      # [修改位置]：增加了 body 字段
-      # [修改备注]：注入商业与专业介绍，声明我们不提供算法推荐服务
       - name: Create Release and Upload IPA
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -143,8 +129,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ========== 10. 为手动触发创建 Draft Release ==========
-      # [修改位置]：增加了 body 字段
-      # [修改备注]：保持介绍说明在各个发布渠道上的统一
       - name: Create Draft Release for Manual Trigger
         uses: softprops/action-gh-release@v1
         if: github.event_name == 'workflow_dispatch'

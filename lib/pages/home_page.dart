@@ -1,194 +1,442 @@
-/// Flarum JSON:API 数据模型与解析
+// 文件位置: lib/pages/home_page.dart
+
+import 'package:flutter/material.dart';
+
+// [修改备注：统一替换为 package 绝对路径导入，彻底消除由于 CI 环境编译时相对路径和绝对路径混用导致的类型冲突和找不到文件错误]
+import 'package:xsop_forum/api/api_client.dart';
+import 'package:xsop_forum/models/flarum_models.dart';
+
+/// Flarum 首页帖子列表
 ///
-/// 将 Flarum 返回的 JSON:API 文档解析为强类型对象，
-/// 并通过 `included` 资源表解析 relationships（作者、最后回复用户、标签）。
+/// 顶栏左侧为抽屉导航（展示全部 Tag，点击按标签筛选），
+/// 右侧为当前用户头像（点击进入个人中心）。
+/// 列表支持下拉刷新与上拉加载更多。
+class HomePage extends StatefulWidget {
+  final ApiClient api;
+  final String baseUrl;
 
-class FlarumUser {
-  final String id;
-  final String username;
-  final String displayName;
-  final String? avatarUrl;
+  /// 点击右上角用户头像回调（进入个人中心）
+  final VoidCallback? onTapAvatar;
 
-  const FlarumUser({
-    required this.id,
-    required this.username,
-    required this.displayName,
-    this.avatarUrl,
+  const HomePage({
+    super.key,
+    required this.api,
+    this.baseUrl = 'https://xsop.de',
+    this.onTapAvatar,
   });
+
+  @override
+  State<HomePage> createState() => _HomePageState();
 }
 
-class FlarumTag {
-  final String id;
-  final String name;
-  final String slug;
-  final String? color;
-  final String? description;
+class _HomePageState extends State<HomePage> {
+  final ScrollController _scrollController = ScrollController();
 
-  const FlarumTag({
-    required this.id,
-    required this.name,
-    required this.slug,
-    this.color,
-    this.description,
-  });
-}
+  final List<Discussion> _discussions = [];
+  final List<FlarumTag> _allTags = [];
+  FlarumUser? _currentUser;
 
-class Discussion {
-  final String id;
-  final String title;
-  final int commentCount;
-  final int participantCount;
-  final DateTime? createdAt;
-  final DateTime? lastPostedAt;
-  final FlarumUser? user; // 作者
-  final FlarumUser? lastPostedUser; // 最后回复用户
-  final List<FlarumTag> tags;
-  final bool isSticky;
-  final bool isLocked;
+  int _page = 1;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+  bool _refreshing = false;
+  String? _error;
+  String? _selectedTagSlug;
 
-  const Discussion({
-    required this.id,
-    required this.title,
-    required this.commentCount,
-    required this.participantCount,
-    required this.createdAt,
-    required this.lastPostedAt,
-    required this.user,
-    required this.lastPostedUser,
-    required this.tags,
-    required this.isSticky,
-    required this.isLocked,
-  });
-}
-
-/// 帖子列表分页结果
-class DiscussionList {
-  final List<Discussion> items;
-  final bool hasMore;
-
-  const DiscussionList({required this.items, required this.hasMore});
-}
-
-// ---------------- 解析 ----------------
-
-DateTime? _parseDate(String? value) {
-  if (value == null || value.isEmpty) return null;
-  return DateTime.tryParse(value);
-}
-
-/// 将相对路径的 URL 拼接上 baseUrl
-String _resolveUrl(String url, String baseUrl) {
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-  if (url.startsWith('/')) return '$base$url';
-  return '$base/$url';
-}
-
-FlarumUser _userFromResource(Map<String, dynamic> resource, String baseUrl) {
-  final attrs = resource['attributes'] as Map<String, dynamic>? ?? const {};
-  final username = attrs['username'] as String? ?? '';
-  final avatar = attrs['avatarUrl'] as String?;
-  return FlarumUser(
-    id: resource['id'].toString(),
-    username: username,
-    displayName: attrs['displayName'] as String? ?? username,
-    avatarUrl: avatar == null ? null : _resolveUrl(avatar, baseUrl),
-  );
-}
-
-FlarumTag _tagFromResource(Map<String, dynamic> resource) {
-  final attrs = resource['attributes'] as Map<String, dynamic>? ?? const {};
-  return FlarumTag(
-    id: resource['id'].toString(),
-    name: attrs['name'] as String? ?? '',
-    slug: attrs['slug'] as String? ?? '',
-    color: attrs['color'] as String?,
-    description: attrs['description'] as String?,
-  );
-}
-
-/// 取某个 relationship 的 data（单个对象）
-Map<String, dynamic>? _relationData(Map<String, dynamic> resource, String name) {
-  final rels = resource['relationships'] as Map<String, dynamic>?;
-  if (rels == null) return null;
-  final r = rels[name] as Map<String, dynamic>?;
-  if (r == null) return null;
-  return r['data'] as Map<String, dynamic>?;
-}
-
-/// 解析帖子列表响应（JSON:API）
-DiscussionList parseDiscussionList(Map<String, dynamic> json, String baseUrl) {
-  final data = json['data'] as List? ?? const [];
-  final includedRaw = json['included'] as List? ?? const [];
-  final links = json['links'] as Map<String, dynamic>? ?? const {};
-  final hasMore = links['next'] != null;
-
-  // 构建 included 索引：'type:id' -> resource
-  final included = <String, Map<String, dynamic>>{};
-  for (final item in includedRaw) {
-    final res = item as Map<String, dynamic>;
-    included['${res['type']}:${res['id']}'] = res;
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    _loadTags();
+    _loadCurrentUser();
+    _refresh();
   }
 
-  final discussions = <Discussion>[];
-  for (final raw in data) {
-    final resource = raw as Map<String, dynamic>;
-    final attrs = resource['attributes'] as Map<String, dynamic>? ?? const {};
-
-    // 作者
-    FlarumUser? author;
-    final userData = _relationData(resource, 'user');
-    if (userData != null) {
-      final res = included['users:${userData['id']}'];
-      if (res != null) author = _userFromResource(res, baseUrl);
-    }
-
-    // 最后回复用户
-    FlarumUser? lastUser;
-    final lastData = _relationData(resource, 'lastPostedUser');
-    if (lastData != null) {
-      final res = included['users:${lastData['id']}'];
-      if (res != null) lastUser = _userFromResource(res, baseUrl);
-    }
-
-    // 标签
-    final tags = <FlarumTag>[];
-    final tagsRel = resource['relationships']?['tags'] as Map<String, dynamic>?;
-    final tagsData = tagsRel?['data'] as List?;
-    if (tagsData != null) {
-      for (final t in tagsData) {
-        final td = t as Map<String, dynamic>;
-        final res = included['tags:${td['id']}'];
-        if (res != null) tags.add(_tagFromResource(res));
-      }
-    }
-
-    discussions.add(Discussion(
-      id: resource['id'].toString(),
-      title: attrs['title'] as String? ?? '',
-      commentCount: attrs['commentCount'] as int? ?? 0,
-      participantCount: attrs['participantCount'] as int? ?? 0,
-      createdAt: _parseDate(attrs['createdAt'] as String?),
-      lastPostedAt: _parseDate(attrs['lastPostedAt'] as String?),
-      user: author,
-      lastPostedUser: lastUser,
-      tags: tags,
-      isSticky: attrs['isSticky'] as bool? ?? false,
-      isLocked: attrs['isLocked'] as bool? ?? false,
-    ));
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  return DiscussionList(items: discussions, hasMore: hasMore);
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 240 &&
+        !_loadingMore &&
+        !_refreshing &&
+        _hasMore &&
+        _error == null) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadTags() async {
+    try {
+      final res = await widget.api.getTags();
+      setState(() => _allTags = parseTags(res));
+    } catch (_) {
+      // 标签加载失败不阻塞主流程
+    }
+  }
+
+  Future<void> _loadCurrentUser() async {
+    try {
+      final userId = await widget.api.getUserId();
+      if (userId == null) return;
+      final res = await widget.api.getUser(userId);
+      setState(() => _currentUser = parseUser(res, widget.baseUrl));
+    } catch (_) {
+      // 未登录或失败时显示默认头像
+    }
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _refreshing = true;
+      _error = null;
+    });
+    try {
+      _page = 1;
+      final res = await widget.api.getDiscussions(page: 1, tag: _selectedTagSlug);
+      final list = parseDiscussionList(res, widget.baseUrl);
+      setState(() {
+        _discussions
+          ..clear()
+          ..addAll(list.items);
+        _hasMore = list.hasMore;
+      });
+    } catch (_) {
+      setState(() => _error = '加载失败，请下拉重试');
+    } finally {
+      setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final res = await widget.api.getDiscussions(
+        page: _page + 1,
+        tag: _selectedTagSlug,
+      );
+      final list = parseDiscussionList(res, widget.baseUrl);
+      setState(() {
+        _discussions.addAll(list.items);
+        _hasMore = list.hasMore;
+        _page += 1;
+      });
+    } catch (_) {
+      // 静默失败，下次滚动可重试
+    } finally {
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  void _selectTag(String? slug) {
+    Navigator.of(context).pop(); // 关闭抽屉
+    if (slug == _selectedTagSlug) return;
+    setState(() => _selectedTagSlug = slug);
+    _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: const Text('Flarum'),
+        actions: [_buildAvatarAction()],
+      ),
+      drawer: _buildDrawer(),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  /// 顶栏右侧用户头像
+  Widget _buildAvatarAction() {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: GestureDetector(
+        onTap: widget.onTapAvatar,
+        child: Tooltip(
+          message: _currentUser?.username ?? '个人中心',
+          child: CircleAvatar(
+            radius: 18,
+            backgroundColor: scheme.primaryContainer,
+            backgroundImage: _currentUser?.avatarUrl != null
+                ? NetworkImage(_currentUser!.avatarUrl!)
+                : null,
+            child: _currentUser?.avatarUrl != null
+                ? null
+                : Icon(Icons.person, size: 20, color: scheme.onPrimaryContainer),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 左侧抽屉：全部 Tag 导航
+  Widget _buildDrawer() {
+    final scheme = Theme.of(context).colorScheme;
+    return Drawer(
+      child: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              sliver: SliverToBoxAdapter(
+                child: Text('标签', style: Theme.of(context).textTheme.titleMedium),
+              ),
+            ),
+            SliverList(
+              delegate: SliverChildListDelegate([
+                ListTile(
+                  leading: const Icon(Icons.apps),
+                  title: const Text('全部'),
+                  selected: _selectedTagSlug == null,
+                  onTap: () => _selectTag(null),
+                ),
+                const Divider(height: 1),
+                for (final tag in _allTags)
+                  ListTile(
+                    leading: Icon(Icons.label, color: _parseColor(tag.color) ?? scheme.primary),
+                    title: Text(tag.name),
+                    subtitle: (tag.description == null || tag.description!.isEmpty)
+                        ? null
+                        : Text(
+                            tag.description!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                    selected: _selectedTagSlug == tag.slug,
+                    onTap: () => _selectTag(tag.slug),
+                  ),
+                if (_allTags.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: Text('暂无标签')),
+                  ),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_refreshing && _discussions.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _discussions.isEmpty) {
+      return ListView(
+        children: [
+          const SizedBox(height: 120),
+          Center(child: Text(_error!)),
+          const SizedBox(height: 12),
+          Center(
+            child: FilledButton.tonal(onPressed: _refresh, child: const Text('重试')),
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: _discussions.length + 1,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      itemBuilder: (context, index) {
+        if (index == _discussions.length) return _buildFooter();
+        return DiscussionTile(discussion: _discussions[index], onTap: () {});
+      },
+    );
+  }
+
+  /// 列表底部：加载中 / 没有更多
+  Widget _buildFooter() {
+    if (_loadingMore) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (!_hasMore) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: Text('没有更多了', style: Theme.of(context).textTheme.bodySmall),
+        ),
+      );
+    }
+    return const SizedBox(height: 24);
+  }
 }
 
-/// 解析全部标签列表（GET /api/tags）
-List<FlarumTag> parseTags(Map<String, dynamic> json) {
-  final data = json['data'] as List? ?? const [];
-  return data.map((e) => _tagFromResource(e as Map<String, dynamic>)).toList();
+/// 单个帖子列表项
+class DiscussionTile extends StatelessWidget {
+  final Discussion discussion;
+  final VoidCallback onTap;
+
+  const DiscussionTile({super.key, required this.discussion, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final author = discussion.user;
+    final replyUser = discussion.lastPostedUser ?? author;
+    final replyTime = discussion.lastPostedAt ?? discussion.createdAt;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _Avatar(user: author),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    discussion.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  if (discussion.tags.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: discussion.tags.map((t) => _TagChip(tag: t)).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.chat_bubble_outline, size: 14, color: scheme.outline),
+                      const SizedBox(width: 4),
+                      Text('${discussion.commentCount}',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(width: 12),
+                      Icon(Icons.schedule, size: 14, color: scheme.outline),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          replyTime == null ? '—' : formatRelativeTime(replyTime),
+                          style: Theme.of(context).textTheme.bodySmall,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (replyUser != null) ...[
+                        const SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            '@${replyUser.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: scheme.outline),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-/// 解析单个用户响应（GET /api/users/{id}）
-FlarumUser parseUser(Map<String, dynamic> json, String baseUrl) {
-  final data = json['data'] as Map<String, dynamic>? ?? const {};
-  return _userFromResource(data, baseUrl);
+class _Avatar extends StatelessWidget {
+  final FlarumUser? user;
+
+  const _Avatar({required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final name = (user?.displayName.isNotEmpty == true
+            ? user!.displayName
+            : user?.username) ??
+        '?';
+    final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: scheme.primaryContainer,
+      backgroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
+      child: user?.avatarUrl != null
+          ? null
+          : Text(letter, style: TextStyle(color: scheme.onPrimaryContainer)),
+    );
+  }
+}
+
+/// 带背景色的标签 Chip
+class _TagChip extends StatelessWidget {
+  final FlarumTag tag;
+
+  const _TagChip({required this.tag});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _parseColor(tag.color) ?? Theme.of(context).colorScheme.primary;
+    // 由标签色向白色插值，得到浅色背景，文字使用标签原色
+    final background = Color.lerp(color, Colors.white, 0.88) ?? color;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        tag.name,
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+// ---------------- 工具函数 ----------------
+
+/// 解析十六进制颜色（#RGB / #RRGGBB / AARRGGBB）
+Color? _parseColor(String? hex) {
+  if (hex == null || hex.isEmpty) return null;
+  var h = hex.replaceFirst('#', '');
+  if (h.length == 3) {
+    h = h.split('').map((c) => '$c$c').join();
+  }
+  if (h.length == 6) h = 'FF$h';
+  final value = int.tryParse(h, radix: 16);
+  if (value == null) return null;
+  return Color(value);
+}
+
+/// 中文相对时间
+String formatRelativeTime(DateTime time, {DateTime? now}) {
+  final nowVal = now ?? DateTime.now();
+  final diff = nowVal.difference(time);
+  if (diff.isNegative) return '刚刚';
+  if (diff.inSeconds < 60) return '刚刚';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
+  if (diff.inHours < 24) return '${diff.inHours}小时前';
+  if (diff.inDays < 30) return '${diff.inDays}天前';
+  if (time.year == nowVal.year) return '${time.month}月${time.day}日';
+  return '${time.year}年${time.month}月${time.day}日';
 }

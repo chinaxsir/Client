@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runner.entitlements — TrollStore 扩展权限
+  这些权限在 App Store 分发时会被苹果严格审核甚至拒绝。
+  通过 TrollStore 侧载时，TrollStore 会将这些 Entitlements
+  写入 App 的签名中，从而获得越狱级别的系统能力。
+
+  ⚠️ 警告：滥用这些权限可能导致 App 被系统拒绝启动，
+  或在更新 iOS 后出现兼容性问题。请按需开启。
+-->
+<plist version="1.0">
+<dict>
+    <!-- iCloud Keychain 访问：跨 App 共享凭证 -->
+    <key>com.apple.developer.ubiquity-kvstore-access</key>
+    <true/>
+
+    <!-- 扩展虚拟地址空间（64-bit 指针） -->
+    <key>com.apple.developer.kernel.extended-virtual-address-space</key>
+    <true/>
+
+    <!-- 允许执行未签名内存（动态代码生成/JIT） -->
+    <!-- 注意：此权限可能导致 App 在某些系统版本崩溃 -->
+    <key>com.apple.security.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- 媒体播放控制 -->
+    <key>com.apple.developer.playable-content</key>
+    <true/>
+
+    <!-- 获取 WiFi 信息（SSID、BSSID 等） -->
+    <key>com.apple.developer.networking.wifi-info</key>
+    <true/>
+
+    <!-- 低延迟 HLS 流媒体 -->
+    <key>com.apple.developer.coremedia.hls.lowerlatency</key>
+    <true/>
+
+    <!-- USB Host 设备访问 -->
+    <key>com.apple.developer.usb.host-device</key>
+    <true/>
+
+    <!-- 音频抓取（系统级音频录制） -->
+    <key>com.apple.developer.avfoundation.audio-fetch</key>
+    <true/>
+
+    <!-- 低延迟 HLS -->
+    <key>com.apple.developer.coremedia.hls.low-latency</key>
+    <true/>
+
+    <!-- 沙盒内文件读写（绕过 Sandbox） -->
+    <!-- 注意：此权限在非越狱环境下通常被忽略，TrollStore 下可能生效 -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- 网络调试（原始套接字访问） -->
+    <key>com.apple.developer.networking.raw-socket</key>
+    <true/>
+</dict>
+</plist>

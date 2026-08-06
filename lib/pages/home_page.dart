@@ -1,5 +1,3 @@
-// 文件位置: lib/pages/home_page.dart
-
 import 'package:flutter/material.dart';
 
 // [修改备注：统一替换为 package 绝对路径导入，彻底消除由于 CI 环境编译时相对路径和绝对路径混用导致的类型冲突和找不到文件错误]
@@ -74,7 +72,11 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadTags() async {
     try {
       final res = await widget.api.getTags();
-      setState(() => _allTags = parseTags(res));
+      setState(() {
+        // [修改备注：因为 _allTags 是 final 的，不能用 = 重新赋值。这里改为先清空数据，再添加新解析的数据]
+        _allTags.clear();
+        _allTags.addAll(parseTags(res));
+      });
     } catch (_) {
       // 标签加载失败不阻塞主流程
     }

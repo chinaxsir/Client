@@ -1,5 +1,3 @@
-// 文件位置: lib/main.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -26,7 +24,7 @@ class XSOPForumApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'XSOP 论坛',
+      title: 'XSOP',
       debugShowCheckedModeBanner: false,
       theme: _buildLightTheme(),
       home: HomePage(

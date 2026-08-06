@@ -34,24 +34,56 @@ jobs:
       - name: Verify Flutter
         run: flutter config --no-analytics && flutter doctor -v
 
-      # ========== 2. 生成 iOS 平台文件（保护 lib/）==========
+      # ========== 2. 保存自定义 lib/ 代码 ==========
+      - name: Backup lib
+        run: |
+          # 保存原始 lib/ 代码，防止 flutter create 覆盖
+          tar cf lib_backup.tar lib/
+          echo "lib/ backed up"
+          ls -la lib/
+
+      # ========== 3. 生成 iOS 平台文件（全新生成，避免冲突）==========
       - name: Generate iOS platform
         run: |
-          cp -r lib lib_backup
-          flutter create . --platforms=ios --project-name=xsop_forum
-          rm -rf lib
-          mv lib_backup lib
+          # 先删除旧的 ios/ 目录，确保 flutter create 生成干净的工程
+          rm -rf ios/
+          echo "Old ios/ directory removed"
+
+          flutter create . --platforms=ios --project-name=xsop_forum 2>&1
+
+          # 恢复自定义 lib/ 代码
+          rm -rf lib/
+          tar xf lib_backup.tar
+          echo "lib/ restored"
+
+          # 验证 main.dart 是否包含自定义代码
+          if grep -q "XSOPForumApp" lib/main.dart; then
+            echo "✅ main.dart contains custom code"
+          else
+            echo "❌ main.dart was overwritten by flutter create!"
+            cat lib/main.dart
+            exit 1
+          fi
+
+          # 验证 iOS 关键文件是否生成
+          if [ -f "ios/Runner.xcodeproj/project.pbxproj" ] && [ -f "ios/Runner.xcworkspace" ]; then
+            echo "✅ iOS project files generated"
+          else
+            echo "❌ iOS project files missing!"
+            ls -la ios/ 2>/dev/null
+            exit 1
+          fi
+
           flutter pub get
 
-      # ========== 3. 安装 CocoaPods ==========
+      # ========== 4. 安装 CocoaPods 依赖 ==========
       - name: Install pods
         working-directory: ios
         run: |
           rm -rf Pods Podfile.lock
-          pod install 2>&1
-          echo "=== Pod install done ==="
+          pod install 2>&1 | tail -20
 
-      # ========== 4. 写入 Runner.entitlements ==========
+      # ========== 5. 写入 TrollStore 扩展权限 ==========
       - name: Write Runner.entitlements
         run: |
           cat > ios/Runner/Runner.entitlements <<'PLIST'
@@ -81,7 +113,7 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 5. 写入 Info.plist ==========
+      # ========== 6. 写入 Info.plist ==========
       - name: Write Info.plist
         run: |
           cat > ios/Runner/Info.plist <<'PLIST'
@@ -160,84 +192,151 @@ jobs:
           </plist>
           PLIST
 
-      # ========== 6. 修改 Bundle ID（仅修改，不破坏结构）==========
+      # ========== 7. 修改 Bundle ID ==========
       - name: Set Bundle ID
         run: |
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' ios/Runner.xcodeproj/project.pbxproj
-          echo "Bundle ID set."
+          echo "Bundle ID set to com.xsop.forum"
 
-      # ========== 7. 使用 flutter build ios 构建 .app ==========
-      # flutter build ipa 在某些 Flutter 版本中不稳定，改用 build ios + 手动打包
-      - name: Build iOS .app
+      # ========== 8. 主构建：flutter build ipa（官方推荐方式）==========
+      - name: Build IPA with Flutter
         run: |
-          flutter build ios \
+          # 使用 flutter build ipa 官方命令
+          # --no-codesign: 跳过签名，TrollStore 自行签名
+          # --obfuscate: 混淆 Dart 代码
+          # --output: 指定输出目录
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+
+          flutter build ipa \
             --no-codesign \
             --obfuscate \
             --split-debug-info=build/debug-info \
-            --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build.log
+            --dart-define=BASE_URL=https://xsop.de \
+            --output="$OUTPUT_DIR" 2>&1 | tee /tmp/flutter_build.log
 
           if [ $? -ne 0 ]; then
-            echo "=== flutter build ios FAILED ==="
+            echo "============================================"
+            echo "  flutter build ipa FAILED"
+            echo "============================================"
             tail -100 /tmp/flutter_build.log
             exit 1
           fi
 
-          echo "=== flutter build ios SUCCESS ==="
+          echo "============================================"
+          echo "  flutter build ipa SUCCESS"
+          echo "============================================"
 
-          # 查找生成的 .app
-          echo "=== Searching for .app ==="
-          find . -name "*.app" -type d 2>/dev/null | grep -v ".symlinks" | head -10
+          # 查找生成的 IPA
+          echo "=== Looking for IPA in $OUTPUT_DIR ==="
+          ls -la "$OUTPUT_DIR/" 2>/dev/null || echo "Directory not found"
 
-          # 列出 build/ios/ 目录
-          echo "=== build/ios/ contents ==="
-          ls -laR build/ios/ 2>/dev/null || echo "build/ios/ not found"
+          # 也检查默认输出路径
+          echo "=== Looking in build/ios/ipa/ ==="
+          ls -la build/ios/ipa/ 2>/dev/null || echo "Not found"
 
-          # 列出 ios/build/ 目录
-          echo "=== ios/build/ contents ==="
-          ls -laR ios/build/ 2>/dev/null || echo "ios/build/ not found"
+          # 查找所有 IPA 文件
+          echo "=== Searching all IPA files ==="
+          find . -name "*.ipa" 2>/dev/null
 
-      # ========== 8. 手动打包 IPA ==========
-      - name: Package .app into .ipa
-        run: |
-          IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
-          mkdir -p "$IPA_OUT"
-
-          # 查找 .app 文件（排除 .symlinks 目录）
-          APP_PATH=$(find . -name "*.app" -type d -not -path "*/.symlinks/*" 2>/dev/null | head -1)
-
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: .app not found!"
-            echo "=== All .app files ==="
-            find . -name "*.app" -type d 2>/dev/null
+          # 检查文件大小
+          IPA_FILE=$(find . -name "*.ipa" -not -path "*/.symlinks/*" 2>/dev/null | head -1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: No IPA file found!"
             exit 1
           fi
 
-          echo "Found .app: $APP_PATH"
+          IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
+          echo "IPA file: $IPA_FILE"
+          echo "IPA size: $IPA_SIZE bytes"
 
-          # 获取 App 名称
+          # IPA 必须大于 15MB，否则是无效的空壳
+          if [ "$IPA_SIZE" -lt 15728640 ]; then
+            echo "ERROR: IPA is too small (${IPA_SIZE} bytes). A real Flutter app should be > 15MB."
+            echo "This indicates the build produced an empty shell. The Flutter engine/frameworks may not have been linked."
+            echo ""
+            echo "=== Debug: checking .app structure ==="
+            find . -name "*.app" -type d 2>/dev/null | while read app; do
+              echo "App: $app"
+              echo "  Size: $(du -sh "$app" 2>/dev/null | cut -f1)"
+              ls -la "$app/Frameworks/" 2>/dev/null | head -5
+              ls -la "$app/Payload/" 2>/dev/null | head -5
+            done
+            exit 1
+          fi
+
+          echo "✅ IPA size is valid (>15MB)"
+
+          # 确保 IPA 在 ipa_output 目录中
+          if ls "$OUTPUT_DIR"/*.ipa 1>/dev/null 2>&1; then
+            echo "IPA already in output dir"
+          else
+            mkdir -p "$OUTPUT_DIR"
+            cp "$IPA_FILE" "$OUTPUT_DIR/"
+            echo "IPA copied to output dir"
+          fi
+
+      # ========== 9. 注入 TrollStore Entitlements ==========
+      # flutter build ipa 不会自动将 .entitlements 文件打入 .app 包
+      # 这里手动解压 IPA → 注入 entitlements → 重新打包
+      - name: Inject Entitlements into IPA
+        run: |
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+          IPA_FILE=$(ls "$OUTPUT_DIR"/*.ipa 2>/dev/null | head -1)
+
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: No IPA found in $OUTPUT_DIR"
+            exit 1
+          fi
+
+          echo "Injecting entitlements into: $IPA_FILE"
+
+          # 创建临时目录
+          ENT_DIR="${GITHUB_WORKSPACE}/build/entitlements_work"
+          rm -rf "$ENT_DIR"
+          mkdir -p "$ENT_DIR"
+
+          # 解压 IPA (IPA 本质是 zip)
+          cd "$ENT_DIR"
+          unzip -o "$IPA_FILE" -d . > /dev/null 2>&1
+
+          # 找到 .app 目录
+          APP_PATH=$(find . -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: .app not found in IPA!"
+            ls -la
+            exit 1
+          fi
+
+          echo "App path in IPA: $APP_PATH"
+
+          # 将 entitlements 文件复制到 .app 目录
+          # TrollStore 会自动查找 .app 内的 .entitlements 文件
+          cp "${GITHUB_WORKSPACE}/ios/Runner/Runner.entitlements" "$APP_PATH/"
+
+          # 同时创建一个与 App 同名的 entitlements 文件（TrollStore 也会查找）
           APP_NAME=$(basename "$APP_PATH" .app)
-          echo "App name: $APP_NAME"
+          cp "${GITHUB_WORKSPACE}/ios/Runner/Runner.entitlements" "$APP_PATH/${APP_NAME}.entitlements"
 
-          # 打包为 IPA
-          STAGING="$IPA_OUT/staging"
-          rm -rf "$STAGING"
-          mkdir -p "$STAGING/Payload"
-          cp -r "$APP_PATH" "$STAGING/Payload/"
+          echo "Entitlements injected:"
+          ls -la "$APP_PATH/"*.entitlements 2>/dev/null
 
-          cd "$STAGING"
-          zip -r "${APP_NAME}_TrollStore.ipa" Payload/
+          # 重新打包 IPA
+          rm -f "$IPA_FILE"
+          zip -r "$IPA_FILE" . -x "*.DS_Store"
+
+          # 验证
+          IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
+          echo "Repackaged IPA size: $IPA_SIZE bytes"
+
+          if [ "$IPA_SIZE" -lt 15728640 ]; then
+            echo "ERROR: Repackaged IPA is too small!"
+            exit 1
+          fi
+
           cd "${GITHUB_WORKSPACE}"
+          echo "✅ Entitlements injected successfully"
 
-          mv "$STAGING/${APP_NAME}_TrollStore.ipa" "$IPA_OUT/"
-
-          echo "=== IPA created ==="
-          ls -la "$IPA_OUT/"
-
-          # 验证 IPA 结构
-          echo "=== IPA contents ==="
-          unzip -l "$IPA_OUT/${APP_NAME}_TrollStore.ipa" | head -20
-
-      # ========== 9. 上传到 Artifacts ==========
+      # ========== 10. 上传到 Artifacts ==========
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -245,7 +344,7 @@ jobs:
           path: build/ipa_output/*.ipa
           retention-days: 90
 
-      # ========== 10. 上传到 GitHub Releases（打 Tag 时）==========
+      # ========== 11. 上传到 GitHub Releases（打 Tag 时）==========
       - name: Create Release and Upload IPA
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -257,7 +356,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ========== 11. 为手动触发创建 Draft Release ==========
+      # ========== 12. 为手动触发创建 Draft Release ==========
       - name: Create Draft Release for Manual Trigger
         uses: softprops/action-gh-release@v1
         if: github.event_name == 'workflow_dispatch'

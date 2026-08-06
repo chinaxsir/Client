@@ -192,20 +192,16 @@ jobs:
       # ========== 8. 主构建：flutter build ipa（官方推荐方式）==========
       - name: Build IPA with Flutter
         run: |
-          # 使用 flutter build ipa 官方命令
-          # --no-codesign: 跳过签名，TrollStore 自行签名
-          # --obfuscate: 混淆 Dart 代码
-          # --output: 指定输出目录
-          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
-
+          # flutter build ipa 在 Flutter 3.29 中不支持 --output
+          # 默认输出到 build/ios/ipa/
           flutter build ipa \
             --no-codesign \
             --obfuscate \
             --split-debug-info=build/debug-info \
-            --dart-define=BASE_URL=https://xsop.de \
-            --output="$OUTPUT_DIR" 2>&1 | tee /tmp/flutter_build.log
+            --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build.log
+          FLUTTER_EXIT=${PIPESTATUS[0]}
 
-          if [ $? -ne 0 ]; then
+          if [ "$FLUTTER_EXIT" -ne 0 ]; then
             echo "============================================"
             echo "  flutter build ipa FAILED"
             echo "============================================"
@@ -217,13 +213,9 @@ jobs:
           echo "  flutter build ipa SUCCESS"
           echo "============================================"
 
-          # 查找生成的 IPA
-          echo "=== Looking for IPA in $OUTPUT_DIR ==="
-          ls -la "$OUTPUT_DIR/" 2>/dev/null || echo "Directory not found"
-
-          # 也检查默认输出路径
-          echo "=== Looking in build/ios/ipa/ ==="
-          ls -la build/ios/ipa/ 2>/dev/null || echo "Not found"
+          # flutter build ipa 默认输出到 build/ios/ipa/
+          echo "=== Looking for IPA in build/ios/ipa/ ==="
+          ls -la build/ios/ipa/ 2>/dev/null || echo "Directory not found"
 
           # 查找所有 IPA 文件
           echo "=== Searching all IPA files ==="
@@ -243,28 +235,25 @@ jobs:
           # IPA 必须大于 15MB，否则是无效的空壳
           if [ "$IPA_SIZE" -lt 15728640 ]; then
             echo "ERROR: IPA is too small (${IPA_SIZE} bytes). A real Flutter app should be > 15MB."
-            echo "This indicates the build produced an empty shell. The Flutter engine/frameworks may not have been linked."
+            echo "This indicates the build produced an empty shell."
             echo ""
             echo "=== Debug: checking .app structure ==="
             find . -name "*.app" -type d 2>/dev/null | while read app; do
               echo "App: $app"
               echo "  Size: $(du -sh "$app" 2>/dev/null | cut -f1)"
               ls -la "$app/Frameworks/" 2>/dev/null | head -5
-              ls -la "$app/Payload/" 2>/dev/null | head -5
             done
             exit 1
           fi
 
           echo "✅ IPA size is valid (>15MB)"
 
-          # 确保 IPA 在 ipa_output 目录中
-          if ls "$OUTPUT_DIR"/*.ipa 1>/dev/null 2>&1; then
-            echo "IPA already in output dir"
-          else
-            mkdir -p "$OUTPUT_DIR"
-            cp "$IPA_FILE" "$OUTPUT_DIR/"
-            echo "IPA copied to output dir"
-          fi
+          # 复制到 ipa_output 目录
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+          mkdir -p "$OUTPUT_DIR"
+          cp "$IPA_FILE" "$OUTPUT_DIR/"
+          echo "IPA copied to $OUTPUT_DIR"
+          ls -la "$OUTPUT_DIR/"
 
       # ========== 9. 注入 TrollStore Entitlements ==========
       # flutter build ipa 不会自动将 .entitlements 文件打入 .app 包

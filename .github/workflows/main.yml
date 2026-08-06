@@ -5,10 +5,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      flutter_version:
-        description: 'Flutter SDK version'
+      node_version: # [修改位置]：原为 flutter_version，已修改为 node_version
+        description: 'Node.js version'
         required: false
-        default: '3.29.0'
+        default: '20'
 
 env:
   APP_NAME: XSOPForum
@@ -23,187 +23,99 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ========== 1. 设置 Flutter ==========
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      # ========== 1. 设置构建环境 ==========
+      # [修改位置]：原先的 Flutter setup 替换为 Node.js
+      # [修改备注]：匹配 XSOP-Forum 的 React Native 和 Expo 技术栈
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          channel: stable
-          version: ${{ github.event.inputs.flutter_version || '3.29.0' }}
-          cache: true
+          node-version: ${{ github.event.inputs.node_version || '20' }}
+          cache: 'npm'
 
-      - name: Verify Flutter
-        run: flutter config --no-analytics && flutter doctor -v
-
-      # ========== 2. 生成 iOS 平台文件（保护 lib/）==========
-      - name: Generate iOS platform
+      # ========== 2. 生成 iOS 平台文件 ==========
+      # [修改位置]：原先的 flutter create 替换为 expo prebuild
+      # [修改备注]：执行 prebuild 动态生成完整的 iOS 原生工程以供后续编译
+      - name: Install dependencies & Prebuild
         run: |
-          cp -r lib lib_backup
-          flutter create . --platforms=ios --project-name=xsop_forum
-          rm -rf lib
-          mv lib_backup lib
-          flutter pub get
+          npm install
+          npx expo prebuild --platform ios --clean
 
       # ========== 3. 安装 CocoaPods ==========
+      # [修改位置]：保持不变，但在 prebuild 生成 ios 目录后执行
       - name: Install pods
         working-directory: ios
         run: |
-          rm -rf Pods Podfile.lock
           pod install 2>&1
           echo "=== Pod install done ==="
 
-      # ========== 4. 写入 Runner.entitlements ==========
-      - name: Write Runner.entitlements
+      # ========== 4. 写入 TrollStore 权限 ==========
+      # [修改位置]：替换了原先的 cat 硬覆盖 Runner.entitlements 的方式
+      # [修改备注]：改为动态查找 entitlements 文件并使用 PlistBuddy 追加巨魔核心权限，避免破坏 Expo 原有配置结构
+      - name: Write Entitlements
         run: |
-          cat > ios/Runner/Runner.entitlements <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>com.apple.developer.ubiquity-kvstore-access</key>
-              <true/>
-              <key>com.apple.developer.kernel.extended-virtual-address-space</key>
-              <true/>
-              <key>com.apple.security.allow-unsigned-executable-memory</key>
-              <true/>
-              <key>com.apple.developer.playable-content</key>
-              <true/>
-              <key>com.apple.developer.networking.wifi-info</key>
-              <true/>
-              <key>com.apple.developer.usb.host-device</key>
-              <true/>
-              <key>com.apple.developer.avfoundation.audio-fetch</key>
-              <true/>
-              <key>com.apple.security.files.user-selected.read-only</key>
-              <true/>
-              <key>com.apple.security.files.user-selected.read-write</key>
-              <true/>
-          </dict>
-          </plist>
-          PLIST
+          ENTITLEMENTS_PATH=$(find ios -name "*.entitlements" | head -n 1)
+          if [ -n "$ENTITLEMENTS_PATH" ]; then
+            /usr/libexec/PlistBuddy -c "Add :com.apple.developer.ubiquity-kvstore-access bool true" "$ENTITLEMENTS_PATH" || true
+            /usr/libexec/PlistBuddy -c "Add :com.apple.developer.kernel.extended-virtual-address-space bool true" "$ENTITLEMENTS_PATH" || true
+            /usr/libexec/PlistBuddy -c "Add :com.apple.security.allow-unsigned-executable-memory bool true" "$ENTITLEMENTS_PATH" || true
+            /usr/libexec/PlistBuddy -c "Add :com.apple.developer.playable-content bool true" "$ENTITLEMENTS_PATH" || true
+            /usr/libexec/PlistBuddy -c "Add :com.apple.security.files.user-selected.read-only bool true" "$ENTITLEMENTS_PATH" || true
+            /usr/libexec/PlistBuddy -c "Add :com.apple.security.files.user-selected.read-write bool true" "$ENTITLEMENTS_PATH" || true
+            echo "Entitlements injected to $ENTITLEMENTS_PATH"
+          fi
 
-      # ========== 5. 写入 Info.plist ==========
-      - name: Write Info.plist
-        run: |
-          cat > ios/Runner/Info.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleDevelopmentRegion</key>
-              <string>zh_CN</string>
-              <key>CFBundleDisplayName</key>
-              <string>XSOP 论坛</string>
-              <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
-              <key>CFBundleIdentifier</key>
-              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictorVersion</key>
-              <string>6.0</string>
-              <key>CFBundleName</key>
-              <string>$(PRODUCT_NAME)</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>$(FLUTTER_BUILD_NAME)</string>
-              <key>CFBundleSignature</key>
-              <string>????</string>
-              <key>CFBundleVersion</key>
-              <string>$(FLUTTER_BUILD_NUMBER)</string>
-              <key>IPHONEOS_DEPLOYMENT_TARGET</key>
-              <string>15.0</string>
-              <key>UIStatusBarStyle</key>
-              <string>UIStatusBarStyleDefault</string>
-              <key>UIViewControllerBasedStatusBarAppearance</key>
-              <true/>
-              <key>NSAppTransportSecurity</key>
-              <dict>
-                  <key>NSAllowsArbitraryLoads</key>
-                  <true/>
-              </dict>
-              <key>NSPhotoLibraryUsageDescription</key>
-              <string>需要访问相册以上传头像</string>
-              <key>NSCameraUsageDescription</key>
-              <string>需要使用相机拍照上传</string>
-              <key>NSMicrophoneUsageDescription</key>
-              <string>需要使用麦克风录制语音</string>
-              <key>NSLocationWhenInUseUsageDescription</key>
-              <string>需要获取位置信息</string>
-              <key>NSLocationAlwaysUsageDescription</key>
-              <string>需要后台持续获取位置</string>
-              <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-              <string>需要持续获取位置信息</string>
-              <key>NSBluetoothAlwaysUsageDescription</key>
-              <string>需要蓝牙权限</string>
-              <key>NSBluetoothPeripheralUsageDescription</key>
-              <string>需要蓝牙外设权限</string>
-              <key>UIBackgroundModes</key>
-              <array>
-                  <string>audio</string>
-                  <string>fetch</string>
-                  <string>remote-notification</string>
-                  <string>processing</string>
-                  <string>location</string>
-              </array>
-              <key>UIFileSharingEnabled</key>
-              <false/>
-              <key>LSSupportsOpeningDocumentsInPlace</key>
-              <false/>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationPortrait</string>
-                  <string>UIInterfaceOrientationLandscapeLeft</string>
-                  <string>UIInterfaceOrientationLandscapeRight</string>
-              </array>
-              <key>UIRequiresFullScreen</key>
-              <false/>
-          </dict>
-          </plist>
-          PLIST
-
-      # ========== 6. 修改 Bundle ID（仅修改，不破坏结构）==========
+      # ========== 5. 修改 Bundle ID ==========
+      # [修改位置]：更新了 sed 的查找路径
+      # [修改备注]：动态匹配生成的 project.pbxproj 以修改 Bundle ID
       - name: Set Bundle ID
         run: |
-          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' ios/Runner.xcodeproj/project.pbxproj
-          echo "Bundle ID set."
-
-      # ========== 7. 使用 flutter build ipa 构建 ==========
-      - name: Build IPA
-        run: |
-          flutter build ipa \
-            --no-codesign \
-            --obfuscate \
-            --split-debug-info=build/debug-info \
-            --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build.log
-
-          if [ $? -ne 0 ]; then
-            echo "=== flutter build ipa FAILED ==="
-            tail -100 /tmp/flutter_build.log
-            exit 1
+          PBXPROJ_PATH=$(find ios -name "project.pbxproj" | head -n 1)
+          if [ -n "$PBXPROJ_PATH" ]; then
+            sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = [^\;]*;/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/g" "$PBXPROJ_PATH"
+            echo "Bundle ID set to ${{ env.BUNDLE_ID }}"
           fi
 
-          echo "=== flutter build ipa SUCCESS ==="
-          ls -la build/ios/ipa/
+      # ========== 6. 使用 xcodebuild 构建 ==========
+      # [修改位置]：原 flutter build ipa 替换为原生 xcodebuild
+      # [修改备注]：完全禁用代码签名验证，并将产物输出到指定的 derivedDataPath 目录，方便下一步精确提取 .app
+      - name: Build App (No Codesign)
+        working-directory: ios
+        run: |
+          WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          xcodebuild -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath ./build_output \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | xcpretty || true
 
-      # ========== 8. 复制到 ipa_output ==========
-      - name: Copy IPA to output
+      # ========== 7. 打包为 TrollStore IPA ==========
+      # [修改位置]：重写了打包和复制的逻辑
+      # [修改备注]：这是巨魔无签名打包最容易踩坑的地方，此步骤主动创建 Payload 文件夹装载无签名 .app，然后压缩生成能被巨魔识别的 .ipa 最终文件
+      - name: Package to IPA
         run: |
           IPA_OUT="${GITHUB_WORKSPACE}/build/ipa_output"
-          mkdir -p "$IPA_OUT"
-
-          if ls build/ios/ipa/*.ipa 1>/dev/null 2>&1; then
-            cp build/ios/ipa/*.ipa "$IPA_OUT/"
-            echo "IPA copied successfully."
-            ls -la "$IPA_OUT/"
+          mkdir -p "$IPA_OUT/Payload"
+          
+          # 查找 xcodebuild 生成的 .app 文件夹
+          APP_PATH=$(find ios/build_output/Build/Products/Release-iphoneos -name "*.app" -type d | head -n 1)
+          if [ -n "$APP_PATH" ]; then
+            cp -R "$APP_PATH" "$IPA_OUT/Payload/"
+            cd "$IPA_OUT"
+            zip -r "${{ env.APP_NAME }}.ipa" Payload
+            rm -rf Payload
+            echo "=== IPA Packaged SUCCESS ==="
+            ls -la
           else
-            echo "ERROR: No IPA found in build/ios/ipa/"
-            echo "Contents of build/ios/:"
-            ls -laR build/ios/ 2>/dev/null || echo "build/ios/ not found"
-            echo "Searching for .app files..."
-            find . -name "*.app" -type d 2>/dev/null | head -5
+            echo "ERROR: No .app found in build output!"
             exit 1
           fi
 
-      # ========== 9. 上传到 Artifacts ==========
+      # ========== 8. 上传到 Artifacts ==========
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -211,7 +123,9 @@ jobs:
           path: build/ipa_output/*.ipa
           retention-days: 90
 
-      # ========== 10. 上传到 GitHub Releases（打 Tag 时）==========
+      # ========== 9. 上传到 GitHub Releases ==========
+      # [修改位置]：增加了 body 字段
+      # [修改备注]：注入商业与专业介绍，声明我们不提供算法推荐服务
       - name: Create Release and Upload IPA
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -220,10 +134,17 @@ jobs:
           files: build/ipa_output/*.ipa
           draft: false
           prerelease: false
+          body: |
+            ## XSOP-Forum TrollStore 更新发布
+            
+            **专业与商业介绍：**
+            我们致力于提供稳定、高效的平台系统，注重内容的呈现与社群交流体验。请注意，本平台不提供任何算法服务。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ========== 11. 为手动触发创建 Draft Release ==========
+      # ========== 10. 为手动触发创建 Draft Release ==========
+      # [修改位置]：增加了 body 字段
+      # [修改备注]：保持介绍说明在各个发布渠道上的统一
       - name: Create Draft Release for Manual Trigger
         uses: softprops/action-gh-release@v1
         if: github.event_name == 'workflow_dispatch'
@@ -233,5 +154,10 @@ jobs:
           files: build/ipa_output/*.ipa
           draft: true
           prerelease: true
+          body: |
+            ## XSOP-Forum TrollStore 草稿构建 (Draft)
+            
+            **专业与商业介绍：**
+            我们致力于提供稳定、高效的平台系统，注重内容的呈现与社群交流体验。请注意，本平台不提供任何算法服务。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

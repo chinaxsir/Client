@@ -66,7 +66,7 @@ jobs:
           fi
 
           # 验证 iOS 关键文件是否生成
-          if [ -f "ios/Runner.xcodeproj/project.pbxproj" ] && [ -f "ios/Runner.xcworkspace" ]; then
+          if [ -f "ios/Runner.xcodeproj/project.pbxproj" ] && [ -d "ios/Runner.xcworkspace" ]; then
             echo "✅ iOS project files generated"
           else
             echo "❌ iOS project files missing!"

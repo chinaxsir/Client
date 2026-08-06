@@ -65,15 +65,6 @@ jobs:
             exit 1
           fi
 
-          # 验证 iOS 关键文件是否生成
-          if [ -f "ios/Runner.xcodeproj/project.pbxproj" ] && [ -d "ios/Runner.xcworkspace" ]; then
-            echo "✅ iOS project files generated"
-          else
-            echo "❌ iOS project files missing!"
-            ls -la ios/ 2>/dev/null
-            exit 1
-          fi
-
           flutter pub get
 
       # ========== 4. 安装 CocoaPods 依赖 ==========

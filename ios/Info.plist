@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist — XSOP Forum (TrollStore Edition)
+  基于 Flutter Runner 模板扩展，加入 TrollStore 友好的配置：
+  - 后台运行模式
+  - ATS 明文 HTTP 允许（Flarum 自建可能无 HTTPS）
+  - 所有权限用途说明
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>XSOP 论坛</string>
+
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+    <key>CFBundleInfoDictorVersion</key>
+    <string>6.0</string>
+
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>$(FLUTTER_BUILD_NAME)</string>
+
+    <key>CFBundleSignature</key>
+    <string>????</string>
+
+    <key>CFBundleVersion</key>
+    <string>$(FLUTTER_BUILD_NUMBER)</string>
+
+    <!-- 最小系统版本 -->
+    <key>IPHONEOS_DEPLOYMENT_TARGET</key>
+    <string>15.0</string>
+
+    <!-- 状态栏样式 -->
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleDefault</string>
+
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+
+    <!-- 允许 HTTP 明文传输（Flarum 自建可能无 HTTPS） -->
+    <!-- ⚠️ 生产环境建议配置 HTTPS 后移除此项 -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>xsop.de</key>
+            <dict>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+                <key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
+
+    <!-- 相册访问说明 -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>需要访问相册以上传头像和发帖图片</string>
+
+    <!-- 相机访问说明 -->
+    <key>NSCameraUsageDescription</key>
+    <string>需要使用相机拍摄头像或发帖图片</string>
+
+    <!-- 麦克风访问说明 -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>需要使用麦克风录制语音回复</string>
+
+    <!-- 位置访问说明 -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>需要获取位置信息用于帖子定位</string>
+
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>需要后台持续获取位置用于签到</string>
+
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>需要持续获取位置信息用于签到功能</string>
+
+    <!-- 蓝牙访问说明 -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>需要蓝牙权限以支持附近的设备发现</string>
+
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>需要蓝牙外设权限以支持蓝牙连接</string>
+
+    <!-- 后台运行模式（TrollStore 扩展核心） -->
+    <!-- 允许 App 在后台长时间运行，包括：
+         - audio: 后台播放音乐/语音
+         - fetch: 后台定期拉取新数据
+         - remote-notification: 接收远程推送
+         - processing: 后台处理任务
+         - location: 后台持续定位 -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>fetch</string>
+        <string>remote-notification</string>
+        <string>processing</string>
+        <string>location</string>
+    </array>
+
+    <!-- 允许在后台保持 TCP 连接（关键：绕过 iOS 后台限制） -->
+    <!-- 此键需配合 UIBackgroundModes 使用 -->
+    <key>UIBackgroundTaskIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+    <!-- 本地通知 -->
+    <key>UILocalNotificationsEnabled</key>
+    <true/>
+
+    <!-- 禁用 iTunes 文件共享（App Store 审核要求，但 TrollStore 可开启） -->
+    <key>UIFileSharingEnabled</key>
+    <false/>
+
+    <!-- 允许用户通过"文件"App 访问 App 文档 -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <false/>
+
+    <!-- 支持的方向 -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- 兼容 iPad 多任务 -->
+    <key>UIRequiresFullScreen</key>
+    <false/>
+
+    <!-- 允许在 Siri 中搜索 -->
+    <key>NSUserNotificationsUsageDescription</key>
+    <string>需要发送本地通知以提醒您有新回复</string>
+
+    <!-- In-App Purchase（如需要） -->
+    <key>com.apple.developer.in-app-payments</key>
+    <array/>
+</dict>
+</plist>

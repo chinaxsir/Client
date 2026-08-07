@@ -84,7 +84,7 @@ jobs:
               <key>CFBundleDevelopmentRegion</key>
               <string>zh_CN</string>
               <key>CFBundleDisplayName</key>
-              <string>XSOP 论坛</string>
+              <string>XSOP</string>
               <key>CFBundleExecutable</key>
               <string>$(EXECUTABLE_NAME)</string>
               <key>CFBundleIdentifier</key>
@@ -315,11 +315,11 @@ jobs:
           cp -r "$APP_PATH" "$STAGING/Payload/"
 
           cd "$STAGING"
-          zip -r "${APP_NAME}_TrollStore.ipa" Payload/ -x "*.DS_Store"
+          zip -r "$XSOP.ipa" Payload/ -x "*.DS_Store"
           cd "${GITHUB_WORKSPACE}"
 
-          IPA_FILE="$OUTPUT_DIR/${APP_NAME}_TrollStore.ipa"
-          cp "$STAGING/${APP_NAME}_TrollStore.ipa" "$IPA_FILE"
+          IPA_FILE="$OUTPUT_DIR/$XSO.ipa"
+          cp "$STAGING/$XSO.ipa" "$IPA_FILE"
 
           # 验证
           IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")

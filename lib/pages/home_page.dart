@@ -9,6 +9,7 @@ import 'package:xsop_forum/pages/discussion_detail_page.dart';
 import 'package:xsop_forum/pages/user_profile_page.dart';
 import 'package:xsop_forum/pages/login_page.dart';
 import 'package:xsop_forum/pages/editor_page.dart';
+import 'package:xsop_forum/pages/notifications_page.dart'; // [修改备注：引入新建的通知页面]
 
 class HomePage extends StatefulWidget {
   final ApiClient api;
@@ -65,9 +66,9 @@ class _HomePageState extends State<HomePage> {
     try {
       final res = await widget.api.getForumInfo();
       final title = res['data']?['attributes']?['title'] as String?;
-      if (mounted) setState(() => _siteTitle = title ?? 'XSOP主页');
+      if (mounted) setState(() => _siteTitle = title ?? 'XSOP 论坛');
     } catch (_) {
-      if (mounted) setState(() => _siteTitle = 'XSOP主页');
+      if (mounted) setState(() => _siteTitle = 'XSOP 论坛');
     }
   }
 
@@ -187,9 +188,24 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        // [修改备注：为标题文本增加加粗效果，使其更具层次感]
         title: Text(_siteTitle, style: const TextStyle(fontWeight: FontWeight.w600)),
-        actions: [_buildAvatarAction(context)],
+        actions: [
+          // [修改备注：头像前方增加了全局通知中心入口按钮]
+          IconButton(
+            icon: const Icon(Icons.notifications_none, size: 26),
+            onPressed: () {
+              if (_currentUser == null) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先登录')));
+                return;
+              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => NotificationsPage(api: widget.api)),
+              );
+            },
+          ),
+          _buildAvatarAction(context)
+        ],
       ),
       drawer: _buildDrawer(),
       body: RefreshIndicator(
@@ -200,7 +216,6 @@ class _HomePageState extends State<HomePage> {
         onPressed: _onTapCreateDiscussion,
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Theme.of(context).colorScheme.onPrimary,
-        // [修改备注：微调悬浮按钮的阴影，使其看起来更轻盈]
         elevation: 3, 
         child: const Icon(Icons.edit),
       ),
@@ -210,7 +225,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.only(right: 12),
       child: GestureDetector(
         onTap: () async {
           if (_currentUser != null) {
@@ -236,7 +251,6 @@ class _HomePageState extends State<HomePage> {
           message: _currentUser?.username ?? '点击登录',
           child: CircleAvatar(
             radius: 17,
-            // [修改备注：头像外圈使用极淡的灰色，避免在纯白背景上显得突兀]
             backgroundColor: Colors.grey.shade100,
             backgroundImage: _currentUser?.avatarUrl != null
                 ? NetworkImage(_currentUser!.avatarUrl!)
@@ -257,7 +271,6 @@ class _HomePageState extends State<HomePage> {
     final secondaryTags = _allTags.where((t) => t.isChild).toList();
 
     return Drawer(
-      // [修改备注：侧边栏也强行指定纯白背景，保持内外视觉一致性]
       backgroundColor: Colors.white,
       child: SafeArea(
         child: Column(
@@ -376,10 +389,8 @@ class _HomePageState extends State<HomePage> {
     }
     return ListView.separated(
       controller: _scrollController,
-      // [修改备注：取消了垂直的外边距，让列表从顶部直接开始，看起来更紧凑规整]
       padding: EdgeInsets.zero,
       itemCount: _discussions.length + 1,
-      // [修改备注：缩短分割线的左侧缩进，使其与文本左对齐，视觉动线更平滑]
       separatorBuilder: (_, __) => const Divider(height: 1, indent: 64),
       itemBuilder: (context, index) {
         if (index == _discussions.length) return _buildFooter();
@@ -457,7 +468,6 @@ class DiscussionTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      // [修改备注：为每个单元格统一白色背景，修复点击涟漪效果在纯色背景下的显示问题]
       child: Material(
         color: Colors.white,
         child: Padding(
@@ -478,7 +488,6 @@ class DiscussionTile extends StatelessWidget {
                       discussion.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      // [修改备注：稍微调大了一点标题的字体大小和行高，增强可读性]
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w600,
                             fontSize: 15,
@@ -551,7 +560,6 @@ class _Avatar extends StatelessWidget {
     final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
     return CircleAvatar(
       radius: 20,
-      // [修改备注：发帖列表的头像背景色也使用了极淡的灰色代替原本的灰蓝色，显得更明亮]
       backgroundColor: Colors.grey.shade100,
       backgroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
       child: user?.avatarUrl != null
@@ -568,7 +576,6 @@ class _TagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _parseColor(tag.color) ?? Theme.of(context).colorScheme.primary;
-    // [修改备注：标签背景调配得更加清透（透明度系数从 0.88 升至 0.92）]
     final background = Color.lerp(color, Colors.white, 0.92) ?? color;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

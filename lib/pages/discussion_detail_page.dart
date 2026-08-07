@@ -5,9 +5,8 @@ import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
 
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
-import 'package:xsop_forum/pages/home_page.dart' show formatRelativeTime; // 复用时间格式化函数
+import 'package:xsop_forum/pages/home_page.dart' show formatRelativeTime;
 
-// [修改备注：重写帖子详情页，彻底解析 Flarum API 数据结构，并使用 HtmlWidget 进行图文混排渲染]
 class DiscussionDetailPage extends StatefulWidget {
   final ApiClient api;
   final Discussion discussion;
@@ -37,9 +36,9 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
 
   Future<void> _loadDiscussionDetail() async {
     try {
-      final data = await widget.api.getDiscussion(widget.discussion.id);
+      // [修改备注：添加了 int.parse()，将 String 类型的 ID 转换为 int 类型，以匹配 api_client 中的参数要求]
+      final data = await widget.api.getDiscussion(int.parse(widget.discussion.id));
       
-      // 解析 Flarum 混合数据结构
       final included = data['included'] as List<dynamic>? ?? [];
       
       final Map<String, dynamic> users = {};
@@ -53,7 +52,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
         }
       }
 
-      // 将楼层按 Flarum 的 number 字段进行正序排列
       postsList.sort((a, b) {
         final aNum = a['attributes']['number'] as int? ?? 0;
         final bNum = b['attributes']['number'] as int? ?? 0;
@@ -98,7 +96,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
         final post = _posts[index];
         final attrs = post['attributes'] ?? {};
         
-        // 查找发言用户数据
         final userId = post['relationships']?['user']?['data']?['id'];
         final user = userId != null ? _usersMap[userId] : null;
         
@@ -107,7 +104,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
         final timeStr = attrs['createdAt'] as String?;
         final time = timeStr != null ? DateTime.tryParse(timeStr) : null;
         
-        // 获取正文 HTML
         final htmlContent = attrs['contentHtml'] as String? ?? '';
 
         return Container(
@@ -127,7 +123,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 顶部：头像、昵称、时间、楼层
               Row(
                 children: [
                   CircleAvatar(
@@ -163,7 +158,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
               const Divider(height: 1),
               const SizedBox(height: 12),
               
-              // 核心内容区：渲染 Flarum HTML 格式富文本
               HtmlWidget(
                 htmlContent,
                 textStyle: const TextStyle(fontSize: 15, height: 1.6, color: Colors.black87),

@@ -1,0 +1,105 @@
+name: Build APK for Android
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: 'Flutter SDK version'
+        required: false
+        default: '3.29.0'
+
+env:
+  APP_NAME: XSOPForum
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    # 安卓打包在 ubuntu 上运行速度最快
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ========== 1. 设置 Java 环境（安卓打包必需） ==========
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # ========== 2. 设置 Flutter ==========
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          version: ${{ github.event.inputs.flutter_version || '3.29.0' }}
+          cache: true
+
+      - name: Verify Flutter
+        run: flutter config --no-analytics && flutter doctor -v
+
+      # ========== 3. 备份源码 ==========
+      - name: Backup source code
+        run: |
+          mkdir -p assets
+          tar cf src_backup.tar lib/ pubspec.yaml assets/
+
+      # ========== 4. 生成平台文件并生成图标 ==========
+      - name: Generate platforms and restore source
+        run: |
+          rm -rf ios/ android/
+          flutter create . --platforms=android,ios --project-name=xsop_forum 2>&1
+          
+          rm -rf lib/ pubspec.yaml assets/
+          tar xf src_backup.tar
+          
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      # ========== 5. 编译 Android APK ==========
+      - name: Build APK
+        run: |
+          flutter build apk --release --dart-define=BASE_URL=https://xsop.de
+
+      # ========== 6. 动态重命名 APK ==========
+      - name: Rename APK
+        run: |
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/apk_output"
+          mkdir -p "$OUTPUT_DIR"
+          
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TAG_SUFFIX="v0.0.${{ github.run_number }}"
+          else
+            TAG_SUFFIX="${{ github.ref_name }}"
+          fi
+
+          FINAL_APK_NAME="Xsop${TAG_SUFFIX}.apk"
+          
+          # Flutter 默认的 APK 输出路径
+          APK_SOURCE_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          
+          cp "$APK_SOURCE_PATH" "$OUTPUT_DIR/$FINAL_APK_NAME"
+          echo "✅ APK created and renamed successfully: $FINAL_APK_NAME"
+
+      # ========== 7. 上传 Artifacts ==========
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-APK
+          path: build/apk_output/*.apk
+          retention-days: 90
+
+      # ========== 8. 上传到 GitHub Releases ==========
+      - name: Create Release and Upload APK
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: Release ${{ github.ref_name }}
+          files: build/apk_output/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

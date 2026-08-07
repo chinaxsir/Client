@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-// [修改备注：将原本的相对路径替换为 package: 绝对路径，避免由于 CI 环境脚本重组文件系统导致的路径解析崩溃]
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/pages/home_page.dart';
 
@@ -9,6 +8,9 @@ import 'package:xsop_forum/pages/home_page.dart';
 final ApiClient apiClient = ApiClient();
 
 void main() {
+  // [修改备注：必须在此处初始化 Flutter 绑定，否则调用 SystemChrome 会导致启动黑屏或崩溃]
+  WidgetsFlutterBinding.ensureInitialized();
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,

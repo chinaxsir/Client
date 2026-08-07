@@ -89,7 +89,6 @@ jobs:
               <string>$(EXECUTABLE_NAME)</string>
               <key>CFBundleIdentifier</key>
               <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <!-- [修改备注：修复了原代码中 CFBundleInfoDictorVersion 的拼写错误] -->
               <key>CFBundleInfoDictionaryVersion</key>
               <string>6.0</string>
               <key>CFBundleName</key>
@@ -103,7 +102,6 @@ jobs:
               <key>CFBundleVersion</key>
               <string>$(FLUTTER_BUILD_NUMBER)</string>
               
-              <!-- [修改备注：补充了 Flutter 和 iOS 必需的视图容器与生命周期配置，解决启动无画面纯黑屏问题] -->
               <key>LSRequiresIPhoneOS</key>
               <true/>
               <key>UILaunchStoryboardName</key>
@@ -193,7 +191,6 @@ jobs:
           cd ios
           rm -rf build/ "$DERIVED"
 
-          # [修改备注：移除了 --obfuscate 和 --split-debug-info 参数。防止 Flarum JSON API 解析因类名混淆导致的静默崩溃]
           flutter build ios \
             --no-codesign \
             --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build.log
@@ -253,7 +250,7 @@ jobs:
           APP_SIZE=$(du -sh "$APP_PATH" 2>/dev/null | cut -f1)
           echo "✅ .app is valid ($APP_SIZE)"
 
-      # ========== 8. 打包 IPA + 注入 Entitlements ==========
+      # ========== 8. 打包 IPA + 注入 Entitlements + 动态命名 ==========
       - name: Package IPA with Entitlements
         run: |
           OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
@@ -306,6 +303,16 @@ jobs:
           
           ldid -Sios/Runner/Runner.entitlements "$APP_PATH/"
           echo "✅ Entitlements signed into .app using ldid"
+          
+          # [修改备注：动态捕获当前的 Tag 名。如果是手动触发，使用运行序号作为后缀备用]
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TAG_SUFFIX="v0.0.${{ github.run_number }}"
+          else
+            TAG_SUFFIX="${{ github.ref_name }}"
+          fi
+
+          # [修改备注：按照要求，将文件名拼接为 Xsop + Tag.ipa (例如 Xsopv0.2.ipa)]
+          FINAL_IPA_NAME="Xsop${TAG_SUFFIX}.ipa"
 
           # 打包 IPA
           mkdir -p "$OUTPUT_DIR"
@@ -315,22 +322,23 @@ jobs:
           cp -r "$APP_PATH" "$STAGING/Payload/"
 
           cd "$STAGING"
-          zip -r "$XSOP.ipa" Payload/ -x "*.DS_Store"
+          # [修改备注：使用新的变量进行 ZIP 压缩]
+          zip -r "$FINAL_IPA_NAME" Payload/ -x "*.DS_Store"
           cd "${GITHUB_WORKSPACE}"
 
-          IPA_FILE="$OUTPUT_DIR/$XSO.ipa"
-          cp "$STAGING/$XSO.ipa" "$IPA_FILE"
+          # [修改备注：拷贝文件时同步使用新文件名]
+          IPA_FILE="$OUTPUT_DIR/$FINAL_IPA_NAME"
+          cp "$STAGING/$FINAL_IPA_NAME" "$IPA_FILE"
 
           # 验证
           IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
           
-          # [修改备注：保留上次的 3MB 宽容拦截阈值]
           if [ "$IPA_SIZE" -lt 3145728 ]; then
             echo "ERROR: IPA too small (${IPA_SIZE} bytes). Must be > 3MB."
             exit 1
           fi
 
-          echo "✅ IPA created successfully"
+          echo "✅ IPA created successfully: $FINAL_IPA_NAME"
 
       # ========== 9. 上传 Artifacts ==========
       - name: Upload IPA Artifact

@@ -218,7 +218,7 @@ jobs:
             TAG_SUFFIX="${{ github.ref_name }}"
           fi
 
-          FINAL_IPA_NAME="Xsop${TAG_SUFFIX}.ipa"
+          FINAL_IPA_NAME="Xsop.ipa"
 
           mkdir -p "$OUTPUT_DIR"
           STAGING="${GITHUB_WORKSPACE}/build/staging"

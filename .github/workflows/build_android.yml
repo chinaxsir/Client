@@ -76,7 +76,7 @@ jobs:
             TAG_SUFFIX="${{ github.ref_name }}"
           fi
 
-          FINAL_APK_NAME="Xsop${TAG_SUFFIX}.apk"
+          FINAL_APK_NAME="Xsop.apk"
           
           # Flutter 默认的 APK 输出路径
           APK_SOURCE_PATH="build/app/outputs/flutter-apk/app-release.apk"

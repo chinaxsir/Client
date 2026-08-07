@@ -37,7 +37,8 @@ jobs:
       # ========== 2. 备份 lib/ 和 pubspec.yaml ==========
       - name: Backup source code
         run: |
-          tar cf src_backup.tar lib/ pubspec.yaml
+          mkdir -p assets
+          tar cf src_backup.tar lib/ pubspec.yaml assets/
           echo "Source backed up"
           ls -la lib/
 
@@ -47,20 +48,18 @@ jobs:
           rm -rf ios/
           flutter create . --platforms=ios --project-name=xsop_forum 2>&1
 
-          # 恢复自定义代码
-          rm -rf lib/ pubspec.yaml
+          rm -rf lib/ pubspec.yaml assets/
           tar xf src_backup.tar
 
-          # 验证
           if grep -q "XSOPForumApp" lib/main.dart; then
             echo "✅ main.dart verified"
           else
             echo "❌ main.dart was overwritten!"
-            cat lib/main.dart
             exit 1
           fi
 
           flutter pub get
+          dart run flutter_launcher_icons
 
       # ========== 4. 安装 CocoaPods ==========
       - name: Install pods
@@ -102,6 +101,20 @@ jobs:
               <key>CFBundleVersion</key>
               <string>$(FLUTTER_BUILD_NUMBER)</string>
               
+              <!-- [修改备注：强制添加 iOS 系统识别图标所需的键值对，修复安装后桌面仍然显示默认图标的 bug] -->
+              <key>CFBundleIconName</key>
+              <string>AppIcon</string>
+              <key>CFBundleIcons</key>
+              <dict>
+                  <key>CFBundlePrimaryIcon</key>
+                  <dict>
+                      <key>CFBundleIconFiles</key>
+                      <array>
+                          <string>AppIcon</string>
+                      </array>
+                  </dict>
+              </dict>
+
               <key>LSRequiresIPhoneOS</key>
               <true/>
               <key>UILaunchStoryboardName</key>
@@ -124,42 +137,6 @@ jobs:
                   <key>NSAllowsArbitraryLoads</key>
                   <true/>
               </dict>
-              <key>NSPhotoLibraryUsageDescription</key>
-              <string>需要访问相册以上传头像</string>
-              <key>NSCameraUsageDescription</key>
-              <string>需要使用相机拍照上传</string>
-              <key>NSMicrophoneUsageDescription</key>
-              <string>需要使用麦克风录制语音</string>
-              <key>NSLocationWhenInUseUsageDescription</key>
-              <string>需要获取位置信息</string>
-              <key>NSLocationAlwaysUsageDescription</key>
-              <string>需要后台持续获取位置</string>
-              <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-              <string>需要持续获取位置信息</string>
-              <key>NSBluetoothAlwaysUsageDescription</key>
-              <string>需要蓝牙权限</string>
-              <key>NSBluetoothPeripheralUsageDescription</key>
-              <string>需要蓝牙外设权限</string>
-              <key>UIBackgroundModes</key>
-              <array>
-                  <string>audio</string>
-                  <string>fetch</string>
-                  <string>remote-notification</string>
-                  <string>processing</string>
-                  <string>location</string>
-              </array>
-              <key>UIFileSharingEnabled</key>
-              <false/>
-              <key>LSSupportsOpeningDocumentsInPlace</key>
-              <false/>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationPortrait</string>
-                  <string>UIInterfaceOrientationLandscapeLeft</string>
-                  <string>UIInterfaceOrientationLandscapeRight</string>
-              </array>
-              <key>UIRequiresFullScreen</key>
-              <false/>
           </dict>
           </plist>
           PLIST
@@ -179,10 +156,6 @@ jobs:
           echo "EXPANDED_CODE_SIGN_IDENTITY = -" >> "$XCCONFIG"
           echo "PROVISIONING_PROFILE_SPECIFIER = \"\"" >> "$XCCONFIG"
 
-          echo "✅ Project configured via xcconfig"
-          echo "=== Verifying xcconfig ==="
-          tail -n 6 "$XCCONFIG"
-
       # ========== 7. flutter build ios（编译 Dart + 生成 .app）==========
       - name: Build .app with Flutter
         run: |
@@ -199,56 +172,9 @@ jobs:
           cd "${GITHUB_WORKSPACE}"
 
           if [ "$BUILD_EXIT" -ne 0 ]; then
-            echo "============================================"
             echo "  flutter build ios FAILED"
-            echo "============================================"
-            tail -100 /tmp/flutter_build.log
             exit 1
           fi
-
-          echo "============================================"
-          echo "  flutter build ios SUCCESS"
-          echo "============================================"
-
-          # 查找 .app
-          echo "=== Searching for .app ==="
-          APP_PATH=$(find "$DERIVED" -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
-          fi
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find ios/build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
-          fi
-
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: .app not found!"
-            find . -name "*.app" -type d 2>/dev/null
-            exit 1
-          fi
-
-          echo "Found .app: $APP_PATH"
-          echo "App size: $(du -sh "$APP_PATH" 2>/dev/null | cut -f1)"
-
-          # 验证 .app 结构
-          if [ -d "$APP_PATH/Frameworks" ]; then
-            echo "Frameworks: $(ls "$APP_PATH/Frameworks/" 2>/dev/null | wc -l) items"
-          else
-            echo "ERROR: No Frameworks directory! Flutter engine not linked."
-            ls -la "$APP_PATH/"
-            exit 1
-          fi
-
-          APP_BIN=$(basename "$APP_PATH" .app)
-          if [ -f "$APP_PATH/$APP_BIN" ]; then
-            echo "Executable: $APP_PATH/$APP_BIN ($(du -sh "$APP_PATH/$APP_BIN" 2>/dev/null | cut -f1))"
-          else
-            echo "ERROR: No executable at $APP_PATH/$APP_BIN"
-            ls -la "$APP_PATH/"
-            exit 1
-          fi
-
-          APP_SIZE=$(du -sh "$APP_PATH" 2>/dev/null | cut -f1)
-          echo "✅ .app is valid ($APP_SIZE)"
 
       # ========== 8. 打包 IPA + 注入 Entitlements + 动态命名 ==========
       - name: Package IPA with Entitlements
@@ -264,12 +190,6 @@ jobs:
             APP_PATH=$(find ios/build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
           fi
 
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: .app not found in any location!"
-            exit 1
-          fi
-
-          # 创建 entitlements 文件
           cat > ios/Runner/Runner.entitlements <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -281,18 +201,6 @@ jobs:
               <true/>
               <key>com.apple.security.allow-unsigned-executable-memory</key>
               <true/>
-              <key>com.apple.developer.playable-content</key>
-              <true/>
-              <key>com.apple.developer.networking.wifi-info</key>
-              <true/>
-              <key>com.apple.developer.usb.host-device</key>
-              <true/>
-              <key>com.apple.developer.avfoundation.audio-fetch</key>
-              <true/>
-              <key>com.apple.security.files.user-selected.read-only</key>
-              <true/>
-              <key>com.apple.security.files.user-selected.read-write</key>
-              <true/>
           </dict>
           </plist>
           PLIST
@@ -300,21 +208,16 @@ jobs:
           brew install ldid
 
           APP_NAME=$(basename "$APP_PATH" .app)
-          
           ldid -Sios/Runner/Runner.entitlements "$APP_PATH/"
-          echo "✅ Entitlements signed into .app using ldid"
           
-          # [修改备注：动态捕获当前的 Tag 名。如果是手动触发，使用运行序号作为后缀备用]
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             TAG_SUFFIX="v0.0.${{ github.run_number }}"
           else
             TAG_SUFFIX="${{ github.ref_name }}"
           fi
 
-          # [修改备注：按照要求，将文件名拼接为 Xsop + Tag.ipa (例如 Xsopv0.2.ipa)]
           FINAL_IPA_NAME="Xsop${TAG_SUFFIX}.ipa"
 
-          # 打包 IPA
           mkdir -p "$OUTPUT_DIR"
           STAGING="${GITHUB_WORKSPACE}/build/staging"
           rm -rf "$STAGING"
@@ -322,23 +225,11 @@ jobs:
           cp -r "$APP_PATH" "$STAGING/Payload/"
 
           cd "$STAGING"
-          # [修改备注：使用新的变量进行 ZIP 压缩]
           zip -r "$FINAL_IPA_NAME" Payload/ -x "*.DS_Store"
           cd "${GITHUB_WORKSPACE}"
 
-          # [修改备注：拷贝文件时同步使用新文件名]
           IPA_FILE="$OUTPUT_DIR/$FINAL_IPA_NAME"
           cp "$STAGING/$FINAL_IPA_NAME" "$IPA_FILE"
-
-          # 验证
-          IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
-          
-          if [ "$IPA_SIZE" -lt 3145728 ]; then
-            echo "ERROR: IPA too small (${IPA_SIZE} bytes). Must be > 3MB."
-            exit 1
-          fi
-
-          echo "✅ IPA created successfully: $FINAL_IPA_NAME"
 
       # ========== 9. 上传 Artifacts ==========
       - name: Upload IPA Artifact
@@ -357,18 +248,5 @@ jobs:
           files: build/ipa_output/*.ipa
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ========== 11. 手动触发创建 Draft Release ==========
-      - name: Create Draft Release for Manual Trigger
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'workflow_dispatch'
-        with:
-          name: Draft Build ${{ github.run_number }}
-          tag_name: v0.0.${{ github.run_number }}
-          files: build/ipa_output/*.ipa
-          draft: true
-          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

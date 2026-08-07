@@ -1,5 +1,5 @@
 // 文件位置: lib/pages/home_page.dart
-import 'package:xsop_forum/pages/login_page.dart';
+
 import 'package:flutter/material.dart';
 
 import 'package:xsop_forum/api/api_client.dart';
@@ -7,6 +7,7 @@ import 'package:xsop_forum/models/flarum_models.dart';
 
 import 'package:xsop_forum/pages/discussion_detail_page.dart';
 import 'package:xsop_forum/pages/user_profile_page.dart';
+import 'package:xsop_forum/pages/login_page.dart';
 
 class HomePage extends StatefulWidget {
   final ApiClient api;
@@ -145,13 +146,21 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _selectTag(String? slug) {
-    // 只有在侧边栏打开时才关闭
     if (Scaffold.of(context).isDrawerOpen) {
       Navigator.of(context).pop(); 
     }
     if (slug == _selectedTagSlug) return;
     setState(() => _selectedTagSlug = slug);
     _refresh();
+  }
+
+  // [修改备注：发帖的入口方法，后续建立写贴页面后在此实现跳转]
+  void _onTapCreateDiscussion() {
+    if (_currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发帖前请先登录')));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('进入发帖编辑器 (页面开发中)')));
   }
 
   @override
@@ -167,17 +176,23 @@ class _HomePageState extends State<HomePage> {
         onRefresh: _refresh,
         child: _buildBody(),
       ),
+      // [修改备注：增加全局发帖悬浮按钮]
+      floatingActionButton: FloatingActionButton(
+        onPressed: _onTapCreateDiscussion,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        child: const Icon(Icons.edit),
+      ),
     );
   }
 
-Widget _buildAvatarAction(BuildContext context) {
+  Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: GestureDetector(
         onTap: () async {
           if (_currentUser != null) {
-            // 如果已登录，进入个人中心
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -185,14 +200,12 @@ Widget _buildAvatarAction(BuildContext context) {
               ),
             );
           } else {
-            // [修改备注：如果未登录，跳转到登录页，并等待结果]
             final loginSuccess = await Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => LoginPage(api: widget.api),
               ),
             );
-            // [修改备注：如果登录页面返回 true，说明登录成功，重新加载全局用户信息和头像]
             if (loginSuccess == true) {
               _loadCurrentUser();
             }
@@ -215,50 +228,88 @@ Widget _buildAvatarAction(BuildContext context) {
     );
   }
 
+  // [修改备注：深度重构侧边栏 UI，完美还原图 2 中的原生视觉体验]
   Widget _buildDrawer() {
     final scheme = Theme.of(context).colorScheme;
     return Drawer(
       child: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-              sliver: SliverToBoxAdapter(
-                child: Text('标签', style: Theme.of(context).textTheme.titleMedium),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Text(
+                '标签', 
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                )
               ),
             ),
-            SliverList(
-              delegate: SliverChildListDelegate([
-                ListTile(
-                  leading: const Icon(Icons.apps),
-                  title: const Text('全部'),
-                  selected: _selectedTagSlug == null,
-                  onTap: () => _selectTag(null),
-                ),
-                const Divider(height: 1),
-                for (final tag in _allTags)
-                  ListTile(
-                    leading: Icon(Icons.label, color: _parseColor(tag.color) ?? scheme.primary),
-                    title: Text(tag.name),
-                    subtitle: (tag.description == null || tag.description!.isEmpty)
-                        ? null
-                        : Text(
-                            tag.description!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                    selected: _selectedTagSlug == tag.slug,
-                    onTap: () => _selectTag(tag.slug),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  _buildDrawerItem(
+                    icon: Icons.grid_view_rounded,
+                    iconColor: scheme.primary,
+                    title: '全部',
+                    isSelected: _selectedTagSlug == null,
+                    onTap: () => _selectTag(null),
                   ),
-                if (_allTags.isEmpty)
                   const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: Text('暂无标签')),
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(height: 1, indent: 12, endIndent: 12),
                   ),
-              ]),
+                  for (final tag in _allTags)
+                    _buildDrawerItem(
+                      // [修改备注：使用 label_important 完美还原 Flarum 标签图标形状]
+                      icon: Icons.label_important,
+                      iconColor: _parseColor(tag.color) ?? scheme.primary,
+                      title: tag.name,
+                      isSelected: _selectedTagSlug == tag.slug,
+                      onTap: () => _selectTag(tag.slug),
+                    ),
+                  if (_allTags.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: Text('暂无标签')),
+                    ),
+                ],
+              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // [修改备注：提取出的列表项组件，用于统一管理高亮背景、圆角和间距]
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.grey.withOpacity(0.15) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: iconColor, size: 22),
+        title: Text(
+          title, 
+          style: TextStyle(
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? Colors.black87 : Colors.black54,
+          )
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        onTap: onTap,
       ),
     );
   }
@@ -288,7 +339,6 @@ Widget _buildAvatarAction(BuildContext context) {
         if (index == _discussions.length) return _buildFooter();
         return DiscussionTile(
           discussion: _discussions[index], 
-          // 1. 点击帖子标题区域，进入详情页
           onTap: () {
             Navigator.push(
               context,
@@ -300,7 +350,6 @@ Widget _buildAvatarAction(BuildContext context) {
               ),
             );
           },
-          // 2. 点击头像，进入该作者主页 [修改备注：完善头像点击事件]
           onTapAuthor: () {
              final author = _discussions[index].user;
              if (author != null) {
@@ -312,7 +361,6 @@ Widget _buildAvatarAction(BuildContext context) {
                );
              }
           },
-          // 3. 点击标签，列表按标签筛选 [修改备注：完善标签筛选事件]
           onTapTag: (String slug) {
              _selectTag(slug);
           },
@@ -343,8 +391,6 @@ Widget _buildAvatarAction(BuildContext context) {
 class DiscussionTile extends StatelessWidget {
   final Discussion discussion;
   final VoidCallback onTap;
-  
-  // [修改备注：为帖子列表项增加头像点击和标签点击的回调接口]
   final VoidCallback onTapAuthor;
   final Function(String) onTapTag;
 
@@ -368,7 +414,6 @@ class DiscussionTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // [修改备注：用 GestureDetector 包裹头像以支持跳转]
           GestureDetector(
             onTap: onTapAuthor,
             child: _Avatar(user: author),
@@ -394,7 +439,6 @@ class DiscussionTile extends StatelessWidget {
                   Wrap(
                     spacing: 6,
                     runSpacing: 4,
-                    // [修改备注：为标签传入点击回调，实现过滤功能]
                     children: discussion.tags.map((t) => GestureDetector(
                       onTap: () => onTapTag(t.slug),
                       child: _TagChip(tag: t),

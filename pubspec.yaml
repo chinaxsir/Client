@@ -13,18 +13,19 @@ dependencies:
   dio: ^5.4.0
   shared_preferences: ^2.2.0
 
-# [修改备注：已确保 dev_dependencies 绝对顶格，彻底脱离 flutter 节点的嵌套]
+# [修改备注：这是全文件唯一的 dev_dependencies 节点，且绝对顶格不留空格。]
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # [修改备注：图标插件合并到了这里，避免重复出现节点报错]
   flutter_launcher_icons: ^0.13.1
 
 # [修改备注：flutter 节点独立顶格]
 flutter:
   uses-material-design: true
 
-# [修改备注：图标生成配置块独立顶格]
+# [修改备注：图标生成的具体规则，独立顶格置于文件最末尾]
 flutter_launcher_icons:
   image_path: "assets/icon.png"
   ios: true             

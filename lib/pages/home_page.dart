@@ -64,10 +64,10 @@ class _HomePageState extends State<HomePage> {
       if (title != null) {
         setState(() => _siteTitle = title);
       } else {
-        setState(() => _siteTitle = 'XSOP 论坛'); // 降级备选名
+        setState(() => _siteTitle = 'XSOP'); // 降级备选名
       }
     } catch (_) {
-      setState(() => _siteTitle = 'XSOP 论坛');
+      setState(() => _siteTitle = 'XSOP');
     }
   }
 

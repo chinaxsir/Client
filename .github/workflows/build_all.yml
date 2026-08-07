@@ -1,10 +1,13 @@
 name: Build All Platforms
 
-# 监听 main 分支的推送，只要有代码更新就自动触发双端打包
+# [修改备注：彻底移除了 push 自动触发机制，现在只能通过 GitHub 网页端手动点击触发]
 on:
-  push:
-    branches: [ 'main' ]
   workflow_dispatch:
+    inputs:
+      release_notes:
+        description: '请输入本次版本的更新说明 (将自动展示在 Release 页面中)'
+        required: false
+        default: '常规体验优化与 Bug 修复'
 
 env:
   APP_NAME: XSOPForum
@@ -55,7 +58,6 @@ jobs:
           OUTPUT_DIR="${GITHUB_WORKSPACE}/build/apk_output"
           mkdir -p "$OUTPUT_DIR"
           
-          # 统一使用总控流水号
           TAG_SUFFIX="v1.0.${{ github.run_number }}"
           FINAL_APK_NAME="Xsop${TAG_SUFFIX}.apk"
           
@@ -65,8 +67,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: Auto Release v1.0.${{ github.run_number }}
-          body: "🚀 全端版本 v1.0.${{ github.run_number }} 已自动构建完成，支持直接下载。"
+          name: XSOP v1.0.${{ github.run_number }}
+          # [修改备注：在这里动态读取你手动触发时输入的更新说明，并展示在 Release 正文中]
+          body: "🚀 全端版本 v1.0.${{ github.run_number }} 已构建完成。\n\n📝 **更新说明**：\n${{ github.event.inputs.release_notes }}"
           files: build/apk_output/*.apk
           draft: false
           prerelease: false
@@ -199,7 +202,6 @@ jobs:
           APP_NAME=$(basename "$APP_PATH" .app)
           ldid -Sios/Runner/Runner.entitlements "$APP_PATH/"
           
-          # 统一使用总控流水号
           TAG_SUFFIX="v1.0.${{ github.run_number }}"
           FINAL_IPA_NAME="Xsop${TAG_SUFFIX}.ipa"
 
@@ -216,8 +218,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: Auto Release v1.0.${{ github.run_number }}
-          body: "🚀 全端版本 v1.0.${{ github.run_number }} 已自动构建完成，支持直接下载。"
+          name: XSOP v1.0.${{ github.run_number }}
+          # [修改备注：同理，让 iOS 端的发布也附加上你手写的更新说明]
+          body: "🚀 全端版本 v1.0.${{ github.run_number }} 已构建完成。\n\n📝 **更新说明**：\n${{ github.event.inputs.release_notes }}"
           files: build/ipa_output/*.ipa
           draft: false
           prerelease: false

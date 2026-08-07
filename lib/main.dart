@@ -29,24 +29,10 @@ class XSOPForumApp extends StatelessWidget {
       title: 'XSOP 论坛',
       debugShowCheckedModeBanner: false,
       theme: _buildLightTheme(),
-      // [修改备注：增加 Builder 包裹，以获取 Scaffold 下方的有效 Context 用于弹出 Snackbar]
-      home: Builder(
-        builder: (innerContext) {
-          return HomePage(
-            api: apiClient,
-            baseUrl: apiClient.baseUrl,
-            // [修改备注：补充了右上角头像的临时点击响应，后续开发个人中心页后替换这里的逻辑]
-            onTapAvatar: () {
-              ScaffoldMessenger.of(innerContext).clearSnackBars();
-              ScaffoldMessenger.of(innerContext).showSnackBar(
-                const SnackBar(
-                  content: Text('正在开发中：个人中心页面'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-          );
-        },
+      home: HomePage(
+        api: apiClient,
+        baseUrl: apiClient.baseUrl,
+        // [修改备注：彻底删除了这里引起报错的 onTapAvatar: () {...} 代码，因为 home_page 已经不需要这个参数了]
       ),
     );
   }

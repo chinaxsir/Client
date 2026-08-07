@@ -1,6 +1,5 @@
 name: Build All Platforms
 
-# [修改备注：彻底移除了 push 自动触发机制，现在只能通过 GitHub 网页端手动点击触发]
 on:
   workflow_dispatch:
     inputs:
@@ -47,6 +46,10 @@ jobs:
           flutter create . --platforms=android,ios --project-name=xsop_forum 2>&1
           rm -rf lib/ pubspec.yaml assets/
           tar xf src_backup.tar
+          
+          # [修改备注：使用 awk 命令，强行向刚生成的 AndroidManifest.xml 中注入 INTERNET 网络访问权限]
+          awk '/<manifest/{print;print "    <uses-permission android:name=\"android.permission.INTERNET\"/>";next}1' android/app/src/main/AndroidManifest.xml > tmp.xml && mv tmp.xml android/app/src/main/AndroidManifest.xml
+          
           flutter pub get
           dart run flutter_launcher_icons
 
@@ -68,7 +71,6 @@ jobs:
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: XSOP v1.0.${{ github.run_number }}
-          # [修改备注：在这里动态读取你手动触发时输入的更新说明，并展示在 Release 正文中]
           body: "🚀 全端版本 v1.0.${{ github.run_number }} 已构建完成。\n\n📝 **更新说明**：\n${{ github.event.inputs.release_notes }}"
           files: build/apk_output/*.apk
           draft: false
@@ -219,7 +221,6 @@ jobs:
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: XSOP v1.0.${{ github.run_number }}
-          # [修改备注：同理，让 iOS 端的发布也附加上你手写的更新说明]
           body: "🚀 全端版本 v1.0.${{ github.run_number }} 已构建完成。\n\n📝 **更新说明**：\n${{ github.event.inputs.release_notes }}"
           files: build/ipa_output/*.ipa
           draft: false

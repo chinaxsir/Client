@@ -70,7 +70,11 @@ class ApiClient {
       'page[number]': page,
       'page[size]': pageSize,
     };
-    if (tag != null) query['filter[tag]'] = tag;
+    
+    // [修改备注：修正 Flarum 的标签过滤参数规则，使用 filter[q]=tag:slug 而不是 filter[tag]]
+    if (tag != null) {
+      query['filter[q]'] = 'tag:$tag';
+    }
     if (sort != null) query['sort'] = sort;
 
     final response = await _dio.get('/api/discussions', queryParameters: query);
@@ -109,14 +113,13 @@ class ApiClient {
   // ==========================================
 
   /// 发帖 / 创建私密主题
-  /// [修改备注：重写了字典拼接逻辑，彻底解决 The operator '[]=' isn't defined 报错]
+  /// [修改备注：重构了 relationships 的拼接逻辑，彻底解决 The operator '[]=' isn't defined 报错]
   Future<Map<String, dynamic>> createDiscussion({
     required String title,
     required String content,
     List<String>? tagIds,
     List<String>? recipientUserIds,
   }) async {
-    // 1. 独立构造 relationships 字典
     final Map<String, dynamic> relationships = {};
 
     if (tagIds != null && tagIds.isNotEmpty) {
@@ -131,7 +134,6 @@ class ApiClient {
       };
     }
 
-    // 2. 构造基础 Payload
     final Map<String, dynamic> payloadData = {
       "type": "discussions",
       "attributes": {
@@ -140,7 +142,6 @@ class ApiClient {
       }
     };
 
-    // 3. 安全合并
     if (relationships.isNotEmpty) {
       payloadData["relationships"] = relationships;
     }

@@ -1,7 +1,4 @@
-/// Flarum JSON:API 数据模型与解析
-///
-/// 将 Flarum 返回的 JSON:API 文档解析为强类型对象，
-/// 并通过 `included` 资源表解析 relationships（作者、最后回复用户、标签）。
+// 文件位置: lib/models/flarum_models.dart
 
 class FlarumUser {
   final String id;
@@ -9,27 +6,26 @@ class FlarumUser {
   final String displayName;
   final String? avatarUrl;
 
-  const FlarumUser({
-    required this.id,
-    required this.username,
-    required this.displayName,
-    this.avatarUrl,
-  });
+  FlarumUser({required this.id, required this.username, required this.displayName, this.avatarUrl});
 }
 
 class FlarumTag {
   final String id;
   final String name;
   final String slug;
-  final String? color;
   final String? description;
+  final String? color;
+  final bool isChild; // 是否为二级标签
+  final int? position; // 排序位置
 
-  const FlarumTag({
+  FlarumTag({
     required this.id,
     required this.name,
     required this.slug,
-    this.color,
     this.description,
+    this.color,
+    this.isChild = false,
+    this.position,
   });
 }
 
@@ -37,158 +33,119 @@ class Discussion {
   final String id;
   final String title;
   final int commentCount;
-  final int participantCount;
-  final DateTime? createdAt;
+  final DateTime createdAt;
+  final FlarumUser? user;
+  final FlarumUser? lastPostedUser;
   final DateTime? lastPostedAt;
-  final FlarumUser? user; // 作者
-  final FlarumUser? lastPostedUser; // 最后回复用户
   final List<FlarumTag> tags;
-  final bool isSticky;
-  final bool isLocked;
 
-  const Discussion({
+  Discussion({
     required this.id,
     required this.title,
     required this.commentCount,
-    required this.participantCount,
     required this.createdAt,
-    required this.lastPostedAt,
-    required this.user,
-    required this.lastPostedUser,
+    this.user,
+    this.lastPostedUser,
+    this.lastPostedAt,
     required this.tags,
-    required this.isSticky,
-    required this.isLocked,
   });
 }
 
-/// 帖子列表分页结果
 class DiscussionList {
   final List<Discussion> items;
   final bool hasMore;
-
-  const DiscussionList({required this.items, required this.hasMore});
+  DiscussionList(this.items, this.hasMore);
 }
 
-// ---------------- 解析 ----------------
-
-DateTime? _parseDate(String? value) {
-  if (value == null || value.isEmpty) return null;
-  return DateTime.tryParse(value);
-}
-
-/// 将相对路径的 URL 拼接上 baseUrl
-String _resolveUrl(String url, String baseUrl) {
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-  if (url.startsWith('/')) return '$base$url';
-  return '$base/$url';
-}
-
-FlarumUser _userFromResource(Map<String, dynamic> resource, String baseUrl) {
-  final attrs = resource['attributes'] as Map<String, dynamic>? ?? const {};
-  final username = attrs['username'] as String? ?? '';
-  final avatar = attrs['avatarUrl'] as String?;
+// 解析方法
+FlarumUser parseUser(Map<String, dynamic> json, String baseUrl) {
+  final attrs = json['data']?['attributes'] ?? {};
+  String? avatar = attrs['avatarUrl'];
+  if (avatar != null && avatar.startsWith('/')) {
+    avatar = '$baseUrl$avatar';
+  }
   return FlarumUser(
-    id: resource['id'].toString(),
-    username: username,
-    displayName: attrs['displayName'] as String? ?? username,
-    avatarUrl: avatar == null ? null : _resolveUrl(avatar, baseUrl),
+    id: json['data']['id'].toString(),
+    username: attrs['username'] ?? 'Unknown',
+    displayName: attrs['displayName'] ?? attrs['username'] ?? 'Unknown',
+    avatarUrl: avatar,
   );
 }
 
-FlarumTag _tagFromResource(Map<String, dynamic> resource) {
-  final attrs = resource['attributes'] as Map<String, dynamic>? ?? const {};
-  return FlarumTag(
-    id: resource['id'].toString(),
-    name: attrs['name'] as String? ?? '',
-    slug: attrs['slug'] as String? ?? '',
-    color: attrs['color'] as String?,
-    description: attrs['description'] as String?,
-  );
+List<FlarumTag> parseTags(Map<String, dynamic> json) {
+  final data = json['data'] as List<dynamic>? ?? [];
+  return data.map((item) {
+    final attrs = item['attributes'] ?? {};
+    return FlarumTag(
+      id: item['id'].toString(),
+      name: attrs['name'] ?? '',
+      slug: attrs['slug'] ?? '',
+      description: attrs['description'],
+      color: attrs['color'],
+      // 识别是否为二级标签
+      isChild: attrs['isChild'] == true,
+      position: attrs['position'] as int?,
+    );
+  }).toList();
 }
 
-/// 取某个 relationship 的 data（单个对象）
-Map<String, dynamic>? _relationData(Map<String, dynamic> resource, String name) {
-  final rels = resource['relationships'] as Map<String, dynamic>?;
-  if (rels == null) return null;
-  final r = rels[name] as Map<String, dynamic>?;
-  if (r == null) return null;
-  return r['data'] as Map<String, dynamic>?;
-}
-
-/// 解析帖子列表响应（JSON:API）
 DiscussionList parseDiscussionList(Map<String, dynamic> json, String baseUrl) {
-  final data = json['data'] as List? ?? const [];
-  final includedRaw = json['included'] as List? ?? const [];
-  final links = json['links'] as Map<String, dynamic>? ?? const {};
+  final data = json['data'] as List<dynamic>? ?? [];
+  final included = json['included'] as List<dynamic>? ?? [];
+  
+  final Map<String, FlarumUser> users = {};
+  final Map<String, FlarumTag> tags = {};
+
+  for (var item in included) {
+    if (item['type'] == 'users') {
+      final attrs = item['attributes'] ?? {};
+      String? avatar = attrs['avatarUrl'];
+      if (avatar != null && avatar.startsWith('/')) avatar = '$baseUrl$avatar';
+      users[item['id'].toString()] = FlarumUser(
+        id: item['id'].toString(),
+        username: attrs['username'] ?? '',
+        displayName: attrs['displayName'] ?? attrs['username'] ?? '',
+        avatarUrl: avatar,
+      );
+    } else if (item['type'] == 'tags') {
+      final attrs = item['attributes'] ?? {};
+      tags[item['id'].toString()] = FlarumTag(
+        id: item['id'].toString(),
+        name: attrs['name'] ?? '',
+        slug: attrs['slug'] ?? '',
+        color: attrs['color'],
+        isChild: attrs['isChild'] == true,
+      );
+    }
+  }
+
+  final items = data.map((item) {
+    final attrs = item['attributes'] ?? {};
+    final rels = item['relationships'] ?? {};
+    
+    final userId = rels['user']?['data']?['id']?.toString();
+    final lastUserId = rels['lastPostedUser']?['data']?['id']?.toString();
+    
+    final tagData = rels['tags']?['data'] as List<dynamic>? ?? [];
+    final discussionTags = tagData
+        .map((t) => tags[t['id'].toString()])
+        .whereType<FlarumTag>()
+        .toList();
+
+    return Discussion(
+      id: item['id'].toString(),
+      title: attrs['title'] ?? '',
+      commentCount: attrs['commentCount'] ?? 0,
+      createdAt: DateTime.tryParse(attrs['createdAt'] ?? '') ?? DateTime.now(),
+      user: userId != null ? users[userId] : null,
+      lastPostedUser: lastUserId != null ? users[lastUserId] : null,
+      lastPostedAt: attrs['lastPostedAt'] != null ? DateTime.tryParse(attrs['lastPostedAt']) : null,
+      tags: discussionTags,
+    );
+  }).toList();
+
+  final links = json['links'] ?? {};
   final hasMore = links['next'] != null;
 
-  // 构建 included 索引：'type:id' -> resource
-  final included = <String, Map<String, dynamic>>{};
-  for (final item in includedRaw) {
-    final res = item as Map<String, dynamic>;
-    included['${res['type']}:${res['id']}'] = res;
-  }
-
-  final discussions = <Discussion>[];
-  for (final raw in data) {
-    final resource = raw as Map<String, dynamic>;
-    final attrs = resource['attributes'] as Map<String, dynamic>? ?? const {};
-
-    // 作者
-    FlarumUser? author;
-    final userData = _relationData(resource, 'user');
-    if (userData != null) {
-      final res = included['users:${userData['id']}'];
-      if (res != null) author = _userFromResource(res, baseUrl);
-    }
-
-    // 最后回复用户
-    FlarumUser? lastUser;
-    final lastData = _relationData(resource, 'lastPostedUser');
-    if (lastData != null) {
-      final res = included['users:${lastData['id']}'];
-      if (res != null) lastUser = _userFromResource(res, baseUrl);
-    }
-
-    // 标签
-    final tags = <FlarumTag>[];
-    final tagsRel = resource['relationships']?['tags'] as Map<String, dynamic>?;
-    final tagsData = tagsRel?['data'] as List?;
-    if (tagsData != null) {
-      for (final t in tagsData) {
-        final td = t as Map<String, dynamic>;
-        final res = included['tags:${td['id']}'];
-        if (res != null) tags.add(_tagFromResource(res));
-      }
-    }
-
-    discussions.add(Discussion(
-      id: resource['id'].toString(),
-      title: attrs['title'] as String? ?? '',
-      commentCount: attrs['commentCount'] as int? ?? 0,
-      participantCount: attrs['participantCount'] as int? ?? 0,
-      createdAt: _parseDate(attrs['createdAt'] as String?),
-      lastPostedAt: _parseDate(attrs['lastPostedAt'] as String?),
-      user: author,
-      lastPostedUser: lastUser,
-      tags: tags,
-      isSticky: attrs['isSticky'] as bool? ?? false,
-      isLocked: attrs['isLocked'] as bool? ?? false,
-    ));
-  }
-
-  return DiscussionList(items: discussions, hasMore: hasMore);
-}
-
-/// 解析全部标签列表（GET /api/tags）
-List<FlarumTag> parseTags(Map<String, dynamic> json) {
-  final data = json['data'] as List? ?? const [];
-  return data.map((e) => _tagFromResource(e as Map<String, dynamic>)).toList();
-}
-
-/// 解析单个用户响应（GET /api/users/{id}）
-FlarumUser parseUser(Map<String, dynamic> json, String baseUrl) {
-  final data = json['data'] as Map<String, dynamic>? ?? const {};
-  return _userFromResource(data, baseUrl);
+  return DiscussionList(items, hasMore);
 }

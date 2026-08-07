@@ -5,15 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
 
-// [修改备注：导入刚刚新建的帖子详情页和个人中心页，建立页面路由依赖]
 import 'package:xsop_forum/pages/discussion_detail_page.dart';
 import 'package:xsop_forum/pages/user_profile_page.dart';
 
 class HomePage extends StatefulWidget {
   final ApiClient api;
   final String baseUrl;
-  
-  // [修改备注：由于跳转逻辑移入页面内部实现，去除了原本需要的 onTapAvatar 回调函数定义]
 
   const HomePage({
     super.key,
@@ -65,10 +62,10 @@ class _HomePageState extends State<HomePage> {
       if (title != null) {
         setState(() => _siteTitle = title);
       } else {
-        setState(() => _siteTitle = 'XSOP'); 
+        setState(() => _siteTitle = 'XSOP 论坛'); 
       }
     } catch (_) {
-      setState(() => _siteTitle = 'XSOP');
+      setState(() => _siteTitle = 'XSOP 论坛');
     }
   }
 
@@ -148,7 +145,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _selectTag(String? slug) {
-    Navigator.of(context).pop(); 
+    // 只有在侧边栏打开时才关闭
+    if (Scaffold.of(context).isDrawerOpen) {
+      Navigator.of(context).pop(); 
+    }
     if (slug == _selectedTagSlug) return;
     setState(() => _selectedTagSlug = slug);
     _refresh();
@@ -170,13 +170,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // [修改备注：传入了 context 参数以支持 Navigator 页面跳转]
   Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: GestureDetector(
-        // [修改备注：实现真实的头像点击跳转逻辑]
         onTap: () {
           if (_currentUser != null) {
             Navigator.push(
@@ -281,7 +279,7 @@ class _HomePageState extends State<HomePage> {
         if (index == _discussions.length) return _buildFooter();
         return DiscussionTile(
           discussion: _discussions[index], 
-          // [修改备注：将原本的弹窗替换为打开刚刚新建的 DiscussionDetailPage 帖子详情页]
+          // 1. 点击帖子标题区域，进入详情页
           onTap: () {
             Navigator.push(
               context,
@@ -292,6 +290,22 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             );
+          },
+          // 2. 点击头像，进入该作者主页 [修改备注：完善头像点击事件]
+          onTapAuthor: () {
+             final author = _discussions[index].user;
+             if (author != null) {
+               Navigator.push(
+                 context,
+                 MaterialPageRoute(
+                   builder: (context) => UserProfilePage(user: author),
+                 ),
+               );
+             }
+          },
+          // 3. 点击标签，列表按标签筛选 [修改备注：完善标签筛选事件]
+          onTapTag: (String slug) {
+             _selectTag(slug);
           },
         );
       },
@@ -320,8 +334,18 @@ class _HomePageState extends State<HomePage> {
 class DiscussionTile extends StatelessWidget {
   final Discussion discussion;
   final VoidCallback onTap;
+  
+  // [修改备注：为帖子列表项增加头像点击和标签点击的回调接口]
+  final VoidCallback onTapAuthor;
+  final Function(String) onTapTag;
 
-  const DiscussionTile({super.key, required this.discussion, required this.onTap});
+  const DiscussionTile({
+    super.key, 
+    required this.discussion, 
+    required this.onTap,
+    required this.onTapAuthor,
+    required this.onTapTag,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -330,20 +354,24 @@ class DiscussionTile extends StatelessWidget {
     final replyUser = discussion.lastPostedUser ?? author;
     final replyTime = discussion.lastPostedAt ?? discussion.createdAt;
 
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _Avatar(user: author),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // [修改备注：用 GestureDetector 包裹头像以支持跳转]
+          GestureDetector(
+            onTap: onTapAuthor,
+            child: _Avatar(user: author),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: onTap,
+                  child: Text(
                     discussion.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -351,52 +379,56 @@ class DiscussionTile extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                   ),
-                  if (discussion.tags.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: discussion.tags.map((t) => _TagChip(tag: t)).toList(),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(Icons.chat_bubble_outline, size: 14, color: scheme.outline),
-                      const SizedBox(width: 4),
-                      Text('${discussion.commentCount}',
-                          style: Theme.of(context).textTheme.bodySmall),
-                      const SizedBox(width: 12),
-                      Icon(Icons.schedule, size: 14, color: scheme.outline),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          replyTime == null ? '—' : formatRelativeTime(replyTime),
-                          style: Theme.of(context).textTheme.bodySmall,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (replyUser != null) ...[
-                        const SizedBox(width: 12),
-                        Flexible(
-                          child: Text(
-                            '@${replyUser.username}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: scheme.outline),
-                          ),
-                        ),
-                      ],
-                    ],
+                ),
+                if (discussion.tags.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    // [修改备注：为标签传入点击回调，实现过滤功能]
+                    children: discussion.tags.map((t) => GestureDetector(
+                      onTap: () => onTapTag(t.slug),
+                      child: _TagChip(tag: t),
+                    )).toList(),
                   ),
                 ],
-              ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.chat_bubble_outline, size: 14, color: scheme.outline),
+                    const SizedBox(width: 4),
+                    Text('${discussion.commentCount}',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(width: 12),
+                    Icon(Icons.schedule, size: 14, color: scheme.outline),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        replyTime == null ? '—' : formatRelativeTime(replyTime),
+                        style: Theme.of(context).textTheme.bodySmall,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (replyUser != null) ...[
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          '@${replyUser.username}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: scheme.outline),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

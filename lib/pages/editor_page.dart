@@ -46,8 +46,16 @@ class _EditorPageState extends State<EditorPage> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标题不能为空')));
         return;
       }
+      
+      // [修复2：强制发帖规则 - 必须同时选择主标签和二级标签]
+      final secondaryTags = widget.availableTags?.where((t) => t.canStartDiscussion && t.isChild).toList() ?? [];
+      
       if (_selectedPrimaryTag == null) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个主标签 (必选)')));
+        return;
+      }
+      if (secondaryTags.isNotEmpty && _selectedSecondaryTags.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个二级标签 (必选)')));
         return;
       }
     }
@@ -130,10 +138,7 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    // [核心修复4 配合：严格筛选出当前用户有“发帖权限”的标签]
     final allowedTags = widget.availableTags?.where((t) => t.canStartDiscussion).toList() ?? [];
-    
-    // 基于过滤后的安全列表，再进行层级拆分
     final primaryTags = allowedTags.where((t) => !t.isChild).toList();
     final secondaryTags = allowedTags.where((t) => t.isChild).toList();
 
@@ -218,7 +223,7 @@ class _EditorPageState extends State<EditorPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('选择二级标签 (可选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+                    Text('选择二级标签 (必选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,

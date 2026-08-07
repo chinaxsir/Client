@@ -13,19 +13,20 @@ dependencies:
   dio: ^5.4.0
   shared_preferences: ^2.2.0
 
+# [修改备注：已确保 dev_dependencies 绝对顶格，彻底脱离 flutter 节点的嵌套]
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-  # 合并到这里的图标生成依赖
   flutter_launcher_icons: ^0.13.1
 
+# [修改备注：flutter 节点独立顶格]
 flutter:
   uses-material-design: true
 
-# 保持在文件最下方的图标配置块：
+# [修改备注：图标生成配置块独立顶格]
 flutter_launcher_icons:
   image_path: "assets/icon.png"
-  ios: true             # 自动替换 iOS 图标
-  android: true         # 自动替换 Android 图标
-  remove_alpha_ios: true # 自动移除 iOS 图标的透明度（苹果强制要求图标不能包含透明通道）
+  ios: true             
+  android: true         
+  remove_alpha_ios: true

@@ -17,17 +17,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # 合并到这里的图标生成依赖
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
 
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  # 添加下面这行依赖
-  flutter_launcher_icons: ^0.13.1
-
-# 在文件最下方添加以下配置块：
+# 保持在文件最下方的图标配置块：
 flutter_launcher_icons:
   image_path: "assets/icon.png"
   ios: true             # 自动替换 iOS 图标

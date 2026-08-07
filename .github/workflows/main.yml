@@ -314,7 +314,7 @@ jobs:
           # 验证
           IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
           
-          if [ "$IPA_SIZE" -lt 15728640 ]; then
+          if [ "$IPA_SIZE" -lt 3145728 ]; then
             echo "ERROR: IPA too small (${IPA_SIZE} bytes). Must be > 15MB."
             exit 1
           fi

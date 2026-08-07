@@ -1,14 +1,14 @@
+// 文件位置: lib/main.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/pages/home_page.dart';
 
-/// 全局单例 ApiClient，默认连接 https://xsop.de
 final ApiClient apiClient = ApiClient();
 
 void main() {
-  // [修改备注：必须在此处初始化 Flutter 绑定，否则调用 SystemChrome 会导致启动黑屏或崩溃]
   WidgetsFlutterBinding.ensureInitialized();
 
   SystemChrome.setSystemUIOverlayStyle(
@@ -26,21 +26,33 @@ class XSOPForumApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'XSOP',
+      title: 'XSOP 论坛',
       debugShowCheckedModeBanner: false,
       theme: _buildLightTheme(),
-      home: HomePage(
-        api: apiClient,
-        baseUrl: apiClient.baseUrl,
-        onTapAvatar: () {
-          // TODO: 跳转个人中心
+      // [修改备注：增加 Builder 包裹，以获取 Scaffold 下方的有效 Context 用于弹出 Snackbar]
+      home: Builder(
+        builder: (innerContext) {
+          return HomePage(
+            api: apiClient,
+            baseUrl: apiClient.baseUrl,
+            // [修改备注：补充了右上角头像的临时点击响应，后续开发个人中心页后替换这里的逻辑]
+            onTapAvatar: () {
+              ScaffoldMessenger.of(innerContext).clearSnackBars();
+              ScaffoldMessenger.of(innerContext).showSnackBar(
+                const SnackBar(
+                  content: Text('正在开发中：个人中心页面'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          );
         },
       ),
     );
   }
 
   ThemeData _buildLightTheme() {
-    const seed = Color(0xFF3B82F6); // Flarum 蓝
+    const seed = Color(0xFF3B82F6);
     return ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(seedColor: seed),

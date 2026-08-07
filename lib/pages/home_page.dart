@@ -1,7 +1,6 @@
 // 文件位置: lib/pages/home_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:xsop_forum/pages/editor_page.dart';
 
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
@@ -9,6 +8,7 @@ import 'package:xsop_forum/models/flarum_models.dart';
 import 'package:xsop_forum/pages/discussion_detail_page.dart';
 import 'package:xsop_forum/pages/user_profile_page.dart';
 import 'package:xsop_forum/pages/login_page.dart';
+import 'package:xsop_forum/pages/editor_page.dart';
 
 class HomePage extends StatefulWidget {
   final ApiClient api;
@@ -64,10 +64,10 @@ class _HomePageState extends State<HomePage> {
       if (title != null) {
         setState(() => _siteTitle = title);
       } else {
-        setState(() => _siteTitle = 'XSOP论坛'); 
+        setState(() => _siteTitle = '官方主页'); 
       }
     } catch (_) {
-      setState(() => _siteTitle = 'XSOP论坛');
+      setState(() => _siteTitle = '官方主页');
     }
   }
 
@@ -155,8 +155,6 @@ class _HomePageState extends State<HomePage> {
     _refresh();
   }
 
-  // [修改备注：发帖的入口方法，后续建立写贴页面后在此实现跳转]
-  // [修改备注：将首页的悬浮按钮连接到刚写好的 EditorPage（发帖模式），并传递标签列表供用户选择]
   void _onTapCreateDiscussion() async {
     if (_currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发帖前请先登录')));
@@ -168,18 +166,40 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(
         builder: (context) => EditorPage(
           api: widget.api,
-          availableTags: _allTags, // 把全局拉取到的标签传递给编辑器
+          availableTags: _allTags,
         ),
       ),
     );
 
-    // 如果发帖成功并返回 true，自动刷新首页列表展现最新帖子
     if (result == true) {
       _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
       _refresh();
     }
   }
-  
+
+  // [修改备注：此处是上一次遗漏的 build 方法，现已完全补齐]
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Text(_siteTitle),
+        actions: [_buildAvatarAction(context)],
+      ),
+      drawer: _buildDrawer(),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: _buildBody(),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _onTapCreateDiscussion,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        child: const Icon(Icons.edit),
+      ),
+    );
+  }
+
   Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
@@ -222,7 +242,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // [修改备注：深度重构侧边栏 UI，完美还原图 2 中的原生视觉体验]
   Widget _buildDrawer() {
     final scheme = Theme.of(context).colorScheme;
     return Drawer(
@@ -257,7 +276,6 @@ class _HomePageState extends State<HomePage> {
                   ),
                   for (final tag in _allTags)
                     _buildDrawerItem(
-                      // [修改备注：使用 label_important 完美还原 Flarum 标签图标形状]
                       icon: Icons.label_important,
                       iconColor: _parseColor(tag.color) ?? scheme.primary,
                       title: tag.name,
@@ -278,7 +296,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // [修改备注：提取出的列表项组件，用于统一管理高亮背景、圆角和间距]
   Widget _buildDrawerItem({
     required IconData icon,
     required Color iconColor,

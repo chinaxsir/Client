@@ -1,183 +1,272 @@
-// 文件位置: lib/models/flarum_models.dart
+// 文件位置: lib/api/api_client.dart
 
-class FlarumUser {
-  final String id;
-  final String username;
-  final String displayName;
-  final String? avatarUrl;
+import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-  FlarumUser({required this.id, required this.username, required this.displayName, this.avatarUrl});
-}
+class ApiClient {
+  static const String _tokenKey = 'flarum_token';
+  static const String _userIdKey = 'flarum_user_id';
 
-class FlarumTag {
-  final String id;
-  final String name;
-  final String slug;
-  final String? description;
-  final String? color;
-  final bool isPrimary; // 明确区分主标签和次标签
-  final int? position; 
-  final bool canStartDiscussion;
+  final Dio _dio;
+  final String baseUrl;
 
-  FlarumTag({
-    required this.id,
-    required this.name,
-    required this.slug,
-    this.description,
-    this.color,
-    this.isPrimary = false,
-    this.position,
-    this.canStartDiscussion = true,
-  });
-}
-
-class Discussion {
-  final String id;
-  final String title;
-  final int commentCount;
-  final DateTime createdAt;
-  final FlarumUser? user;
-  final FlarumUser? lastPostedUser;
-  final DateTime? lastPostedAt;
-  final List<FlarumTag> tags;
-
-  Discussion({
-    required this.id,
-    required this.title,
-    required this.commentCount,
-    required this.createdAt,
-    this.user,
-    this.lastPostedUser,
-    this.lastPostedAt,
-    required this.tags,
-  });
-}
-
-class DiscussionList {
-  final List<Discussion> items;
-  final bool hasMore;
-  DiscussionList(this.items, this.hasMore);
-}
-
-FlarumUser parseUser(Map<String, dynamic> json, String baseUrl) {
-  final attrs = json['data']?['attributes'] ?? {};
-  String? avatar = attrs['avatarUrl'];
-  if (avatar != null && avatar.startsWith('/')) {
-    avatar = '$baseUrl$avatar';
+  ApiClient({this.baseUrl = 'https://xsop.de'}) : _dio = Dio(BaseOptions(
+    baseUrl: baseUrl,
+    connectTimeout: const Duration(seconds: 15),
+    receiveTimeout: const Duration(seconds: 20),
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+  )) {
+    _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        final token = await getToken();
+        if (token != null && token.isNotEmpty) {
+          options.headers['Authorization'] = 'Token $token';
+        }
+        handler.next(options);
+      },
+    ));
   }
-  return FlarumUser(
-    id: json['data']['id'].toString(),
-    username: attrs['username'] ?? 'Unknown',
-    displayName: attrs['displayName'] ?? attrs['username'] ?? 'Unknown',
-    avatarUrl: avatar,
-  );
-}
 
-List<FlarumTag> parseTags(Map<String, dynamic> json) {
-  final data = json['data'] as List<dynamic>? ?? [];
-  return data.map((item) {
-    final attrs = item['attributes'] ?? {};
-    final rels = item['relationships'] ?? {};
-    
-    final pos = attrs['position'];
-    bool hasPosition = false;
-    
-    // [核心修复：极高容错率判定！拦截 API 可能下发的所有形式的空位]
-    if (pos is int) {
-      hasPosition = true;
-    } else if (pos is String && pos.trim().isNotEmpty && pos.trim().toLowerCase() != 'null') {
-      hasPosition = true;
-    } else if (pos != null && pos is! String) {
-      hasPosition = true;
+  Future<Map<String, dynamic>> getForumInfo() async {
+    final response = await _dio.get('/api');
+    return _asMap(response.data);
+  }
+
+  Future<String?> getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_tokenKey);
+  }
+
+  Future<int?> getUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_userIdKey);
+  }
+
+  Future<Map<String, dynamic>> login(String identification, String password) async {
+    final response = await _dio.post('/api/token', data: {
+      'identification': identification,
+      'password': password,
+    });
+    final data = _asMap(response.data);
+    final token = data['token'] as String?;
+    final userId = data['userId'] as int?;
+    if (token != null && token.isNotEmpty) {
+      await _saveAuth(token, userId);
     }
+    return data;
+  }
 
-    final hasParent = rels['parent'] != null && rels['parent']['data'] != null;
-    final bool isChild = attrs['isChild'] == true || hasParent;
-    
-    // 只有明确包含 position 数字，且不是子节点的，才被认定为"主标签"
-    final bool isPrimary = hasPosition && !isChild;
-
-    return FlarumTag(
-      id: item['id'].toString(),
-      name: attrs['name'] ?? '',
-      slug: attrs['slug'] ?? '',
-      description: attrs['description'],
-      color: attrs['color'],
-      isPrimary: isPrimary, // 严格标识
-      position: pos is int ? pos : null,
-      canStartDiscussion: attrs['canStartDiscussion'] ?? true,
-    );
-  }).toList();
-}
-
-DiscussionList parseDiscussionList(Map<String, dynamic> json, String baseUrl) {
-  final data = json['data'] as List<dynamic>? ?? [];
-  final included = json['included'] as List<dynamic>? ?? [];
-  
-  final Map<String, FlarumUser> users = {};
-  final Map<String, FlarumTag> tags = {};
-
-  for (var item in included) {
-    if (item['type'] == 'users') {
-      final attrs = item['attributes'] ?? {};
-      String? avatar = attrs['avatarUrl'];
-      if (avatar != null && avatar.startsWith('/')) avatar = '$baseUrl$avatar';
-      users[item['id'].toString()] = FlarumUser(
-        id: item['id'].toString(),
-        username: attrs['username'] ?? '',
-        displayName: attrs['displayName'] ?? attrs['username'] ?? '',
-        avatarUrl: avatar,
-      );
-    } else if (item['type'] == 'tags') {
-      final attrs = item['attributes'] ?? {};
-      
-      final pos = attrs['position'];
-      bool hasPosition = false;
-      if (pos is int) {
-        hasPosition = true;
-      } else if (pos is String && pos.trim().isNotEmpty && pos.trim().toLowerCase() != 'null') {
-        hasPosition = true;
-      } else if (pos != null && pos is! String) {
-        hasPosition = true;
+  // [核心修复：采用嵌套 Map 构建 filter，让网络层自动将其正确编码为 Flarum PHP 后端能识别的 filter[tag] 和 filter[q]]
+  Future<Map<String, dynamic>> getDiscussions({
+    int page = 1,
+    int pageSize = 20,
+    String? tag,
+    String? author, 
+    String? sort,
+  }) async {
+    final query = <String, dynamic>{
+      'page': {
+        'number': page,
+        'size': pageSize,
       }
+    };
+    
+    final filter = <String, dynamic>{};
+    List<String> searchQueries = [];
+    
+    if (tag != null && tag.isNotEmpty) {
+      filter['tag'] = tag.trim(); // Flarum 官方原生标签过滤
+      searchQueries.add('tag:${tag.trim()}'); // 搜索引擎二次兜底
+    }
+    
+    if (author != null && author.isNotEmpty) {
+      searchQueries.add('author:${author.trim()}');
+    }
+    
+    if (searchQueries.isNotEmpty) {
+      filter['q'] = searchQueries.join(' ');
+    }
+    
+    if (filter.isNotEmpty) {
+      query['filter'] = filter; // 将构建好的嵌套字典塞入 query
+    }
 
-      tags[item['id'].toString()] = FlarumTag(
-        id: item['id'].toString(),
-        name: attrs['name'] ?? '',
-        slug: attrs['slug'] ?? '',
-        color: attrs['color'],
-        isPrimary: hasPosition && attrs['isChild'] != true,
-      );
+    if (sort != null) query['sort'] = sort;
+
+    final response = await _dio.get('/api/discussions', queryParameters: query);
+    return _asMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> getDiscussion(
+    int id, {
+    int page = 1,
+    int pageSize = 20,
+    String include = 'user,posts,posts.user',
+  }) async {
+    final response = await _dio.get(
+      '/api/discussions/$id',
+      queryParameters: {
+        'page': {
+          'number': page,
+          'size': pageSize,
+        },
+        'include': include,
+      },
+    );
+    return _asMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> getTags() async {
+    final response = await _dio.get(
+      '/api/tags', 
+      queryParameters: {'include': 'parent'}
+    );
+    return _asMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> getUser(int id) async {
+    final response = await _dio.get('/api/users/$id');
+    return _asMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> createDiscussion({
+    required String title,
+    required String content,
+    List<String>? tagIds,
+    List<String>? recipientUserIds,
+  }) async {
+    final Map<String, dynamic> relationships = {};
+
+    if (tagIds != null && tagIds.isNotEmpty) {
+      relationships["tags"] = {
+        "data": tagIds.map((id) => {"type": "tags", "id": id}).toList()
+      };
+    }
+
+    if (recipientUserIds != null && recipientUserIds.isNotEmpty) {
+      relationships["recipientUsers"] = {
+        "data": recipientUserIds.map((id) => {"type": "users", "id": id}).toList()
+      };
+    }
+
+    final Map<String, dynamic> payloadData = {
+      "type": "discussions",
+      "attributes": {
+        "title": title,
+        "content": content,
+      }
+    };
+
+    if (relationships.isNotEmpty) {
+      payloadData["relationships"] = relationships;
+    }
+
+    final data = {"data": payloadData};
+
+    final response = await _dio.post('/api/discussions', data: data);
+    return _asMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> createPost(int discussionId, String content) async {
+    final data = {
+      "data": {
+        "type": "posts",
+        "attributes": {"content": content},
+        "relationships": {
+          "discussion": {
+            "data": {"type": "discussions", "id": discussionId.toString()}
+          }
+        }
+      }
+    };
+    final response = await _dio.post('/api/posts', data: data);
+    return _asMap(response.data);
+  }
+
+  Future<void> likePost(int postId, bool isLiked) async {
+    await _dio.patch('/api/posts/$postId', data: {
+      "data": {
+        "type": "posts",
+        "id": postId.toString(),
+        "attributes": {"isLiked": isLiked}
+      }
+    });
+  }
+
+  Future<void> reportPost(int postId, String reason, String? detail) async {
+    await _dio.post('/api/flags', data: {
+      "data": {
+        "type": "flags",
+        "attributes": {
+          "reason": reason,
+          "reasonDetail": detail ?? ""
+        },
+        "relationships": {
+          "post": {
+            "data": {"type": "posts", "id": postId.toString()}
+          }
+        }
+      }
+    });
+  }
+
+  Future<Map<String, dynamic>> getNotifications() async {
+    final response = await _dio.get('/api/notifications');
+    return _asMap(response.data);
+  }
+
+  Future<void> suspendUser(int userId, DateTime? suspendUntil, String? reason) async {
+    await _dio.patch('/api/users/$userId', data: {
+      "data": {
+        "type": "users",
+        "id": userId.toString(),
+        "attributes": {
+          "suspendUntil": suspendUntil?.toIso8601String(),
+          "suspendMessage": reason
+        }
+      }
+    });
+  }
+
+  Future<String?> uploadImage(String filePath) async {
+    final formData = FormData.fromMap({
+      'files[]': await MultipartFile.fromFile(filePath),
+    });
+    
+    final response = await _dio.post('/api/fof/upload', data: formData);
+    final data = _asMap(response.data);
+    
+    final files = data['data'] as List<dynamic>?;
+    if (files != null && files.isNotEmpty) {
+       return files.first['attributes']?['url'] as String?;
+    }
+    return null;
+  }
+
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_userIdKey);
+  }
+
+  Future<bool> get isLoggedIn async {
+    final token = await getToken();
+    return token != null && token.isNotEmpty;
+  }
+
+  Future<void> _saveAuth(String token, int? userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tokenKey, token);
+    if (userId != null) {
+      await prefs.setInt(_userIdKey, userId);
     }
   }
 
-  final items = data.map((item) {
-    final attrs = item['attributes'] ?? {};
-    final rels = item['relationships'] ?? {};
-    
-    final userId = rels['user']?['data']?['id']?.toString();
-    final lastUserId = rels['lastPostedUser']?['data']?['id']?.toString();
-    
-    final tagData = rels['tags']?['data'] as List<dynamic>? ?? [];
-    final discussionTags = tagData
-        .map((t) => tags[t['id'].toString()])
-        .whereType<FlarumTag>()
-        .toList();
-
-    return Discussion(
-      id: item['id'].toString(),
-      title: attrs['title'] ?? '',
-      commentCount: attrs['commentCount'] ?? 0,
-      createdAt: DateTime.tryParse(attrs['createdAt'] ?? '') ?? DateTime.now(),
-      user: userId != null ? users[userId] : null,
-      lastPostedUser: lastUserId != null ? users[lastUserId] : null,
-      lastPostedAt: attrs['lastPostedAt'] != null ? DateTime.tryParse(attrs['lastPostedAt']) : null,
-      tags: discussionTags,
-    );
-  }).toList();
-
-  final links = json['links'] ?? {};
-  final hasMore = links['next'] != null;
-
-  return DiscussionList(items, hasMore);
+  Map<String, dynamic> _asMap(dynamic data) {
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{};
+  }
 }

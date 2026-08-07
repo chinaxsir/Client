@@ -1,19 +1,13 @@
+// 文件位置: lib/pages/home_page.dart
+
 import 'package:flutter/material.dart';
 
-// [修改备注：统一替换为 package 绝对路径导入，彻底消除由于 CI 环境编译时相对路径和绝对路径混用导致的类型冲突和找不到文件错误]
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
 
-/// Flarum 首页帖子列表
-///
-/// 顶栏左侧为抽屉导航（展示全部 Tag，点击按标签筛选），
-/// 右侧为当前用户头像（点击进入个人中心）。
-/// 列表支持下拉刷新与上拉加载更多。
 class HomePage extends StatefulWidget {
   final ApiClient api;
   final String baseUrl;
-
-  /// 点击右上角用户头像回调（进入个人中心）
   final VoidCallback? onTapAvatar;
 
   const HomePage({
@@ -33,6 +27,9 @@ class _HomePageState extends State<HomePage> {
   final List<Discussion> _discussions = [];
   final List<FlarumTag> _allTags = [];
   FlarumUser? _currentUser;
+  
+  // [修改备注：新增了一个状态变量 _siteTitle，默认显示'加载中...'，用于接收动态获取的论坛标题]
+  String _siteTitle = '加载中...';
 
   int _page = 1;
   bool _hasMore = true;
@@ -45,6 +42,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _loadForumInfo(); // [修改备注：初始化时调用获取全局信息的方法]
     _loadTags();
     _loadCurrentUser();
     _refresh();
@@ -55,6 +53,22 @@ class _HomePageState extends State<HomePage> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // [修改备注：新增了 _loadForumInfo 方法，请求全局数据并解析赋值给 _siteTitle]
+  Future<void> _loadForumInfo() async {
+    try {
+      final res = await widget.api.getForumInfo();
+      // Flarum API 的基本信息存放在 data -> attributes -> title 中
+      final title = res['data']?['attributes']?['title'] as String?;
+      if (title != null) {
+        setState(() => _siteTitle = title);
+      } else {
+        setState(() => _siteTitle = 'XSOP 论坛'); // 降级备选名
+      }
+    } catch (_) {
+      setState(() => _siteTitle = 'XSOP 论坛');
+    }
   }
 
   void _onScroll() {
@@ -73,12 +87,10 @@ class _HomePageState extends State<HomePage> {
     try {
       final res = await widget.api.getTags();
       setState(() {
-        // [修改备注：因为 _allTags 是 final 的，不能用 = 重新赋值。这里改为先清空数据，再添加新解析的数据]
         _allTags.clear();
         _allTags.addAll(parseTags(res));
       });
     } catch (_) {
-      // 标签加载失败不阻塞主流程
     }
   }
 
@@ -89,7 +101,6 @@ class _HomePageState extends State<HomePage> {
       final res = await widget.api.getUser(userId);
       setState(() => _currentUser = parseUser(res, widget.baseUrl));
     } catch (_) {
-      // 未登录或失败时显示默认头像
     }
   }
 
@@ -130,14 +141,13 @@ class _HomePageState extends State<HomePage> {
         _page += 1;
       });
     } catch (_) {
-      // 静默失败，下次滚动可重试
     } finally {
       setState(() => _loadingMore = false);
     }
   }
 
   void _selectTag(String? slug) {
-    Navigator.of(context).pop(); // 关闭抽屉
+    Navigator.of(context).pop(); 
     if (slug == _selectedTagSlug) return;
     setState(() => _selectedTagSlug = slug);
     _refresh();
@@ -148,7 +158,8 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: const Text('Flarum'),
+        // [修改备注：这里将硬编码的 'Flarum' 替换为了动态请求到的 _siteTitle]
+        title: Text(_siteTitle),
         actions: [_buildAvatarAction()],
       ),
       drawer: _buildDrawer(),
@@ -159,7 +170,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 顶栏右侧用户头像
   Widget _buildAvatarAction() {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
@@ -183,7 +193,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 左侧抽屉：全部 Tag 导航
   Widget _buildDrawer() {
     final scheme = Theme.of(context).colorScheme;
     return Drawer(
@@ -255,12 +264,23 @@ class _HomePageState extends State<HomePage> {
       separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
       itemBuilder: (context, index) {
         if (index == _discussions.length) return _buildFooter();
-        return DiscussionTile(discussion: _discussions[index], onTap: () {});
+        return DiscussionTile(
+          discussion: _discussions[index], 
+          // [修改备注：为帖子列表项补充了临时点击事件，后续可以在这里开发跳转帖子详情页的 Navigator 逻辑]
+          onTap: () {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('正在开发中：${_discussions[index].title} 详情页'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
+        );
       },
     );
   }
 
-  /// 列表底部：加载中 / 没有更多
   Widget _buildFooter() {
     if (_loadingMore) {
       return const Padding(
@@ -280,7 +300,6 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// 单个帖子列表项
 class DiscussionTile extends StatelessWidget {
   final Discussion discussion;
   final VoidCallback onTap;
@@ -368,7 +387,6 @@ class DiscussionTile extends StatelessWidget {
 
 class _Avatar extends StatelessWidget {
   final FlarumUser? user;
-
   const _Avatar({required this.user});
 
   @override
@@ -390,16 +408,13 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-/// 带背景色的标签 Chip
 class _TagChip extends StatelessWidget {
   final FlarumTag tag;
-
   const _TagChip({required this.tag});
 
   @override
   Widget build(BuildContext context) {
     final color = _parseColor(tag.color) ?? Theme.of(context).colorScheme.primary;
-    // 由标签色向白色插值，得到浅色背景，文字使用标签原色
     final background = Color.lerp(color, Colors.white, 0.88) ?? color;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -415,9 +430,6 @@ class _TagChip extends StatelessWidget {
   }
 }
 
-// ---------------- 工具函数 ----------------
-
-/// 解析十六进制颜色（#RGB / #RRGGBB / AARRGGBB）
 Color? _parseColor(String? hex) {
   if (hex == null || hex.isEmpty) return null;
   var h = hex.replaceFirst('#', '');
@@ -430,7 +442,6 @@ Color? _parseColor(String? hex) {
   return Color(value);
 }
 
-/// 中文相对时间
 String formatRelativeTime(DateTime time, {DateTime? now}) {
   final nowVal = now ?? DateTime.now();
   final diff = nowVal.difference(time);

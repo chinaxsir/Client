@@ -59,7 +59,7 @@ class ApiClient {
     return data;
   }
 
-  // [修改备注：新增 author 参数，并重构筛选参数拼接逻辑，使其支持按作者查找帖子]
+  // [修复3：标签筛选失效。Flarum 原生必须使用 filter[tag]，按作者查询使用 filter[q]=author]
   Future<Map<String, dynamic>> getDiscussions({
     int page = 1,
     int pageSize = 20,
@@ -72,13 +72,11 @@ class ApiClient {
       'page[size]': pageSize,
     };
     
-    // 组合多个查询条件 (如 tag:slug author:admin)
-    List<String> filters = [];
-    if (tag != null) filters.add('tag:$tag');
-    if (author != null) filters.add('author:$author');
-
-    if (filters.isNotEmpty) {
-      query['filter[q]'] = filters.join(' ');
+    if (tag != null && tag.isNotEmpty) {
+      query['filter[tag]'] = tag;
+    }
+    if (author != null && author.isNotEmpty) {
+      query['filter[q]'] = 'author:$author';
     }
     
     if (sort != null) query['sort'] = sort;

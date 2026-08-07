@@ -23,7 +23,8 @@ class ApiClient {
       onRequest: (options, handler) async {
         final token = await getToken();
         if (token != null && token.isNotEmpty) {
-          options.headers['Authorization'] = 'Bearer $token';
+          // [核心修复1：Flarum 原生 API 必须使用 Token 前缀，绝对不能用 Bearer，否则所有鉴权操作全部失败！]
+          options.headers['Authorization'] = 'Token $token';
         }
         handler.next(options);
       },
@@ -70,8 +71,9 @@ class ApiClient {
       'page[size]': pageSize,
     };
     
+    // [核心修复2：还原 Flarum 官方的标签精确过滤语法，修复侧边栏点击无效的问题]
     if (tag != null) {
-      query['filter[q]'] = 'tag:$tag';
+      query['filter[tag]'] = tag;
     }
     if (sort != null) query['sort'] = sort;
 
@@ -97,7 +99,11 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getTags() async {
-    final response = await _dio.get('/api/tags');
+    // [核心修复3：强制要求服务器下发 parent 关系，以便客户端精准识别谁是主标签、谁是二级标签]
+    final response = await _dio.get(
+      '/api/tags', 
+      queryParameters: {'include': 'parent'}
+    );
     return _asMap(response.data);
   }
 
@@ -205,17 +211,14 @@ class ApiClient {
     });
   }
 
-  // [修改备注：新增基于 fof/upload 的图片上传接口，采用 MultipartFile 形式直传服务器]
   Future<String?> uploadImage(String filePath) async {
     final formData = FormData.fromMap({
       'files[]': await MultipartFile.fromFile(filePath),
     });
     
-    // 发送到 fof/upload 的标准端点
     final response = await _dio.post('/api/fof/upload', data: formData);
     final data = _asMap(response.data);
     
-    // 解析返回的文件 URL
     final files = data['data'] as List<dynamic>?;
     if (files != null && files.isNotEmpty) {
        return files.first['attributes']?['url'] as String?;

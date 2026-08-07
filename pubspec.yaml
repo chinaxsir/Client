@@ -20,3 +20,16 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # 添加下面这行依赖
+  flutter_launcher_icons: ^0.13.1
+
+# 在文件最下方添加以下配置块：
+flutter_launcher_icons:
+  image_path: "assets/icon.png"
+  ios: true             # 自动替换 iOS 图标
+  android: true         # 自动替换 Android 图标
+  remove_alpha_ios: true # 自动移除 iOS 图标的透明度（苹果强制要求图标不能包含透明通道）

@@ -72,7 +72,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
     }
   }
 
-  // [修改备注：实现点赞逻辑（包含乐观 UI 更新，先变亮再请求接口，失败则回退）]
   Future<void> _toggleLike(int index) async {
     final isLoggedIn = await widget.api.isLoggedIn;
     if (!isLoggedIn) {
@@ -87,7 +86,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
     final bool currentIsLiked = attrs['isLiked'] ?? false;
     final int currentLikesCount = attrs['likesCount'] ?? 0;
 
-    // 乐观 UI 更新
     setState(() {
       _posts[index]['attributes']['isLiked'] = !currentIsLiked;
       _posts[index]['attributes']['likesCount'] = currentIsLiked ? currentLikesCount - 1 : currentLikesCount + 1;
@@ -96,7 +94,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
     try {
       await widget.api.likePost(postId, !currentIsLiked);
     } catch (e) {
-      // 失败后回退 UI
       if (mounted) {
         setState(() {
           _posts[index]['attributes']['isLiked'] = currentIsLiked;
@@ -107,7 +104,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
     }
   }
 
-  // [修改备注：实现举报弹窗逻辑]
   Future<void> _showReportDialog(int postId) async {
     final isLoggedIn = await widget.api.isLoggedIn;
     if (!isLoggedIn) {
@@ -124,6 +120,8 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
             return AlertDialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
               title: const Text('举报该内容'),
               content: SingleChildScrollView(
                 child: Column(
@@ -185,7 +183,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
     );
   }
 
-  // [修改备注：底部回复栏点击时，唤起新建的 EditorPage 回帖模式]
   void _openReplyEditor() async {
     final isLoggedIn = await widget.api.isLoggedIn;
     if (!isLoggedIn) {
@@ -203,7 +200,6 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
       ),
     );
 
-    // 回帖成功后，自动刷新当前页面的楼层数据
     if (result == true) {
       setState(() => _isLoading = true);
       _loadDiscussionDetail();
@@ -224,33 +220,42 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // [修改备注：强制页面背景为纯白，确保与主页风格统一]
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(widget.discussion.title, style: const TextStyle(fontSize: 16)),
+        title: Text(widget.discussion.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        // [修改备注：为导航栏底部增加一条极细的分割线，区分头部与正文]
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(color: const Color(0xFFE5E5EA), height: 0.5),
+        ),
       ),
       body: _buildBody(),
-      // [修改备注：帖子底部的固定回复栏]
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.white,
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -2))
-            ]
+            // [修改备注：去除了厚重的阴影，改用干净的顶部分割线]
+            border: Border(top: BorderSide(color: Color(0xFFE5E5EA), width: 0.5)),
           ),
           child: InkWell(
             onTap: _openReplyEditor,
+            borderRadius: BorderRadius.circular(24),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
+                // [修改备注：输入框背景使用更淡的灰色，显得更加现代]
                 color: Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.edit, size: 18, color: Colors.grey.shade600),
+                  Icon(Icons.edit, size: 18, color: Colors.grey.shade500),
                   const SizedBox(width: 8),
-                  Text('写下你的回复...', style: TextStyle(color: Colors.grey.shade600)),
+                  Text('写下你的回复...', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
                 ],
               ),
             ),
@@ -268,9 +273,11 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
       return Center(child: Text(_error!));
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    // [修改备注：将 ListView.builder 改为 ListView.separated，用极细的分割线代替原本楼层之间的巨大留白和卡片边距]
+    return ListView.separated(
+      padding: EdgeInsets.zero,
       itemCount: _posts.length,
+      separatorBuilder: (context, index) => const Divider(height: 1, thickness: 0.5, color: Color(0xFFE5E5EA)),
       itemBuilder: (context, index) {
         final post = _posts[index];
         final postId = int.parse(post['id']);
@@ -289,15 +296,9 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
         final likesCount = attrs['likesCount'] ?? 0;
 
         return Container(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 2)),
-            ],
-          ),
+          // [修改备注：移除了 margin、borderRadius 和 boxShadow，让楼层扁平铺满屏幕]
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -305,35 +306,36 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
                 children: [
                   CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.grey.shade200,
+                    // [修改备注：统一使用更淡的灰色作为无头像时的底色]
+                    backgroundColor: Colors.grey.shade100,
                     backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                    child: avatarUrl == null ? const Icon(Icons.person, size: 20, color: Colors.grey) : null,
+                    child: avatarUrl == null ? Icon(Icons.person, size: 20, color: Theme.of(context).colorScheme.primary) : null,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(username, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        Text(username, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                         if (time != null)
-                          Text(formatRelativeTime(time), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                          const SizedBox(height: 2),
+                        if (time != null)
+                          Text(formatRelativeTime(time), style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
                       ],
                     ),
                   ),
-                  Text('#${attrs['number']}', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+                  Text('#${attrs['number']}', style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
                 ],
               ),
-              const SizedBox(height: 12),
-              const Divider(height: 1),
+              
               const SizedBox(height: 12),
               
               HtmlWidget(
                 htmlContent,
-                textStyle: const TextStyle(fontSize: 15, height: 1.6, color: Colors.black87),
+                textStyle: const TextStyle(fontSize: 16, height: 1.6, color: Colors.black87),
               ),
 
-              const SizedBox(height: 16),
-              // [修改备注：渲染每个楼层底部的互动操作栏（点赞与举报）]
+              const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -341,29 +343,29 @@ class _DiscussionDetailPageState extends State<DiscussionDetailPage> {
                     onTap: () => _toggleLike(index),
                     borderRadius: BorderRadius.circular(16),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       child: Row(
                         children: [
                           Icon(
                             isLiked ? Icons.thumb_up : Icons.thumb_up_outlined, 
                             size: 16, 
-                            color: isLiked ? Colors.blue : Colors.grey
+                            color: isLiked ? Theme.of(context).colorScheme.primary : Colors.grey.shade500
                           ),
                           if (likesCount > 0) ...[
                             const SizedBox(width: 4),
-                            Text('$likesCount', style: TextStyle(color: isLiked ? Colors.blue : Colors.grey, fontSize: 13)),
+                            Text('$likesCount', style: TextStyle(color: isLiked ? Theme.of(context).colorScheme.primary : Colors.grey.shade500, fontSize: 13)),
                           ]
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   InkWell(
                     onTap: () => _showReportDialog(postId),
                     borderRadius: BorderRadius.circular(16),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      child: Icon(Icons.warning_amber_rounded, size: 18, color: Colors.grey),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      child: Icon(Icons.warning_amber_rounded, size: 18, color: Colors.grey.shade400),
                     ),
                   ),
                 ],

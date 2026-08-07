@@ -1,5 +1,5 @@
 // 文件位置: lib/pages/home_page.dart
-
+import 'package:xsop_forum/pages/login_page.dart';
 import 'package:flutter/material.dart';
 
 import 'package:xsop_forum/api/api_client.dart';
@@ -170,13 +170,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildAvatarAction(BuildContext context) {
+Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: GestureDetector(
-        onTap: () {
+        onTap: () async {
           if (_currentUser != null) {
+            // 如果已登录，进入个人中心
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -184,13 +185,21 @@ class _HomePageState extends State<HomePage> {
               ),
             );
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('请先登录')),
+            // [修改备注：如果未登录，跳转到登录页，并等待结果]
+            final loginSuccess = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => LoginPage(api: widget.api),
+              ),
             );
+            // [修改备注：如果登录页面返回 true，说明登录成功，重新加载全局用户信息和头像]
+            if (loginSuccess == true) {
+              _loadCurrentUser();
+            }
           }
         },
         child: Tooltip(
-          message: _currentUser?.username ?? '未登录',
+          message: _currentUser?.username ?? '点击登录',
           child: CircleAvatar(
             radius: 18,
             backgroundColor: scheme.primaryContainer,

@@ -44,10 +44,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _loadForumInfo();
-    _loadTags();
-    _loadCurrentUser();
-    _refresh();
+    _loadAllGlobalData();
   }
 
   @override
@@ -57,17 +54,71 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  // [修改备注：将所有加载动作合并，方便在登录/登出后统一刷新权限]
+  Future<void> _loadAllGlobalData() async {
+    _loadForumInfo();
+    await _loadCurrentUser();
+    await _loadTags();
+    _refresh();
+  }
+
   Future<void> _loadForumInfo() async {
     try {
       final res = await widget.api.getForumInfo();
       final title = res['data']?['attributes']?['title'] as String?;
-      if (title != null) {
-        setState(() => _siteTitle = title);
-      } else {
-        setState(() => _siteTitle = '官方主页'); 
+      if (mounted) setState(() => _siteTitle = title ?? 'XSOP主页');
+    } catch (_) {
+      if (mounted) setState(() => _siteTitle = 'XSOP主页');
+    }
+  }
+
+  Future<void> _loadTags() async {
+    try {
+      final res = await widget.api.getTags();
+      if (mounted) {
+        setState(() {
+          _allTags.clear();
+          _allTags.addAll(parseTags(res));
+          // 按照 Flarum 的 position 进行排序
+          _allTags.sort((a, b) => (a.position ?? 999).compareTo(b.position ?? 999));
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadCurrentUser() async {
+    try {
+      final userId = await widget.api.getUserId();
+      if (userId == null) {
+        if (mounted) setState(() => _currentUser = null);
+        return;
+      }
+      final res = await widget.api.getUser(userId);
+      if (mounted) setState(() => _currentUser = parseUser(res, widget.baseUrl));
+    } catch (_) {}
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _refreshing = true;
+      _error = null;
+    });
+    try {
+      _page = 1;
+      final res = await widget.api.getDiscussions(page: 1, tag: _selectedTagSlug);
+      final list = parseDiscussionList(res, widget.baseUrl);
+      if (mounted) {
+        setState(() {
+          _discussions
+            ..clear()
+            ..addAll(list.items);
+          _hasMore = list.hasMore;
+        });
       }
     } catch (_) {
-      setState(() => _siteTitle = '官方主页');
+      if (mounted) setState(() => _error = '加载失败，请下拉重试');
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -83,66 +134,22 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _loadTags() async {
-    try {
-      final res = await widget.api.getTags();
-      setState(() {
-        _allTags.clear();
-        _allTags.addAll(parseTags(res));
-      });
-    } catch (_) {
-    }
-  }
-
-  Future<void> _loadCurrentUser() async {
-    try {
-      final userId = await widget.api.getUserId();
-      if (userId == null) return;
-      final res = await widget.api.getUser(userId);
-      setState(() => _currentUser = parseUser(res, widget.baseUrl));
-    } catch (_) {
-    }
-  }
-
-  Future<void> _refresh() async {
-    setState(() {
-      _refreshing = true;
-      _error = null;
-    });
-    try {
-      _page = 1;
-      final res = await widget.api.getDiscussions(page: 1, tag: _selectedTagSlug);
-      final list = parseDiscussionList(res, widget.baseUrl);
-      setState(() {
-        _discussions
-          ..clear()
-          ..addAll(list.items);
-        _hasMore = list.hasMore;
-      });
-    } catch (_) {
-      setState(() => _error = '加载失败，请下拉重试');
-    } finally {
-      setState(() => _refreshing = false);
-    }
-  }
-
   Future<void> _loadMore() async {
     if (_loadingMore || !_hasMore) return;
     setState(() => _loadingMore = true);
     try {
-      final res = await widget.api.getDiscussions(
-        page: _page + 1,
-        tag: _selectedTagSlug,
-      );
+      final res = await widget.api.getDiscussions(page: _page + 1, tag: _selectedTagSlug);
       final list = parseDiscussionList(res, widget.baseUrl);
-      setState(() {
-        _discussions.addAll(list.items);
-        _hasMore = list.hasMore;
-        _page += 1;
-      });
+      if (mounted) {
+        setState(() {
+          _discussions.addAll(list.items);
+          _hasMore = list.hasMore;
+          _page += 1;
+        });
+      }
     } catch (_) {
     } finally {
-      setState(() => _loadingMore = false);
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -166,7 +173,7 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute(
         builder: (context) => EditorPage(
           api: widget.api,
-          availableTags: _allTags,
+          availableTags: _allTags, // 将带权限的标签树传给编辑器
         ),
       ),
     );
@@ -177,7 +184,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // [修改备注：此处是上一次遗漏的 build 方法，现已完全补齐]
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -220,8 +226,9 @@ class _HomePageState extends State<HomePage> {
                 builder: (context) => LoginPage(api: widget.api),
               ),
             );
+            // [修改备注：登录成功后，全局刷新，确保隐藏板块对管理员/授权用户可见]
             if (loginSuccess == true) {
-              _loadCurrentUser();
+              _loadAllGlobalData();
             }
           }
         },
@@ -244,6 +251,11 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildDrawer() {
     final scheme = Theme.of(context).colorScheme;
+    
+    // [修改备注：将标签自动拆分为主标签和二级标签]
+    final primaryTags = _allTags.where((t) => !t.isChild).toList();
+    final secondaryTags = _allTags.where((t) => t.isChild).toList();
+
     return Drawer(
       child: SafeArea(
         child: Column(
@@ -264,7 +276,6 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 children: [
                   _buildDrawerItem(
-                    icon: Icons.grid_view_rounded,
                     iconColor: scheme.primary,
                     title: '全部',
                     isSelected: _selectedTagSlug == null,
@@ -274,14 +285,37 @@ class _HomePageState extends State<HomePage> {
                     padding: EdgeInsets.symmetric(vertical: 8),
                     child: Divider(height: 1, indent: 12, endIndent: 12),
                   ),
-                  for (final tag in _allTags)
-                    _buildDrawerItem(
-                      icon: Icons.label_important,
-                      iconColor: _parseColor(tag.color) ?? scheme.primary,
-                      title: tag.name,
-                      isSelected: _selectedTagSlug == tag.slug,
-                      onTap: () => _selectTag(tag.slug),
+                  
+                  // 渲染主标签
+                  if (primaryTags.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, top: 8, bottom: 8),
+                      child: Text('主标签', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     ),
+                    for (final tag in primaryTags)
+                      _buildDrawerItem(
+                        iconColor: _parseColor(tag.color) ?? scheme.primary,
+                        title: tag.name,
+                        isSelected: _selectedTagSlug == tag.slug,
+                        onTap: () => _selectTag(tag.slug),
+                      ),
+                  ],
+
+                  // 渲染二级标签
+                  if (secondaryTags.isNotEmpty) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, top: 16, bottom: 8),
+                      child: Text('二级标签', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+                    ),
+                    for (final tag in secondaryTags)
+                      _buildDrawerItem(
+                        iconColor: _parseColor(tag.color) ?? scheme.primary,
+                        title: tag.name,
+                        isSelected: _selectedTagSlug == tag.slug,
+                        onTap: () => _selectTag(tag.slug),
+                      ),
+                  ],
+                  
                   if (_allTags.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(24),
@@ -297,7 +331,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildDrawerItem({
-    required IconData icon,
     required Color iconColor,
     required String title,
     required bool isSelected,
@@ -310,7 +343,8 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListTile(
-        leading: Icon(icon, color: iconColor, size: 22),
+        // [修改备注：统一使用 Flarum 标志性的向右箭头标签图标]
+        leading: Icon(Icons.label_important, color: iconColor, size: 22),
         title: Text(
           title, 
           style: TextStyle(
@@ -397,172 +431,4 @@ class _HomePageState extends State<HomePage> {
     }
     return const SizedBox(height: 24);
   }
-}
-
-class DiscussionTile extends StatelessWidget {
-  final Discussion discussion;
-  final VoidCallback onTap;
-  final VoidCallback onTapAuthor;
-  final Function(String) onTapTag;
-
-  const DiscussionTile({
-    super.key, 
-    required this.discussion, 
-    required this.onTap,
-    required this.onTapAuthor,
-    required this.onTapTag,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final author = discussion.user;
-    final replyUser = discussion.lastPostedUser ?? author;
-    final replyTime = discussion.lastPostedAt ?? discussion.createdAt;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: onTapAuthor,
-            child: _Avatar(user: author),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: onTap,
-                  child: Text(
-                    discussion.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ),
-                if (discussion.tags.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: discussion.tags.map((t) => GestureDetector(
-                      onTap: () => onTapTag(t.slug),
-                      child: _TagChip(tag: t),
-                    )).toList(),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.chat_bubble_outline, size: 14, color: scheme.outline),
-                    const SizedBox(width: 4),
-                    Text('${discussion.commentCount}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(width: 12),
-                    Icon(Icons.schedule, size: 14, color: scheme.outline),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        replyTime == null ? '—' : formatRelativeTime(replyTime),
-                        style: Theme.of(context).textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (replyUser != null) ...[
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          '@${replyUser.username}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: scheme.outline),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Avatar extends StatelessWidget {
-  final FlarumUser? user;
-  const _Avatar({required this.user});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final name = (user?.displayName.isNotEmpty == true
-            ? user!.displayName
-            : user?.username) ??
-        '?';
-    final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    return CircleAvatar(
-      radius: 20,
-      backgroundColor: scheme.primaryContainer,
-      backgroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
-      child: user?.avatarUrl != null
-          ? null
-          : Text(letter, style: TextStyle(color: scheme.onPrimaryContainer)),
-    );
-  }
-}
-
-class _TagChip extends StatelessWidget {
-  final FlarumTag tag;
-  const _TagChip({required this.tag});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _parseColor(tag.color) ?? Theme.of(context).colorScheme.primary;
-    final background = Color.lerp(color, Colors.white, 0.88) ?? color;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        tag.name,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
-Color? _parseColor(String? hex) {
-  if (hex == null || hex.isEmpty) return null;
-  var h = hex.replaceFirst('#', '');
-  if (h.length == 3) {
-    h = h.split('').map((c) => '$c$c').join();
-  }
-  if (h.length == 6) h = 'FF$h';
-  final value = int.tryParse(h, radix: 16);
-  if (value == null) return null;
-  return Color(value);
-}
-
-String formatRelativeTime(DateTime time, {DateTime? now}) {
-  final nowVal = now ?? DateTime.now();
-  final diff = nowVal.difference(time);
-  if (diff.isNegative) return '刚刚';
-  if (diff.inSeconds < 60) return '刚刚';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
-  if (diff.inHours < 24) return '${diff.inHours}小时前';
-  if (diff.inDays < 30) return '${diff.inDays}天前';
-  if (time.year == nowVal.year) return '${time.month}月${time.day}日';
-  return '${time.year}年${time.month}月${time.day}日';
 }

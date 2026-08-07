@@ -1,6 +1,7 @@
 // 文件位置: lib/pages/home_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:xsop_forum/pages/editor_page.dart';
 
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
@@ -155,37 +156,30 @@ class _HomePageState extends State<HomePage> {
   }
 
   // [修改备注：发帖的入口方法，后续建立写贴页面后在此实现跳转]
-  void _onTapCreateDiscussion() {
+  // [修改备注：将首页的悬浮按钮连接到刚写好的 EditorPage（发帖模式），并传递标签列表供用户选择]
+  void _onTapCreateDiscussion() async {
     if (_currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发帖前请先登录')));
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('进入发帖编辑器 (页面开发中)')));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Text(_siteTitle),
-        actions: [_buildAvatarAction(context)],
-      ),
-      drawer: _buildDrawer(),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: _buildBody(),
-      ),
-      // [修改备注：增加全局发帖悬浮按钮]
-      floatingActionButton: FloatingActionButton(
-        onPressed: _onTapCreateDiscussion,
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Theme.of(context).colorScheme.onPrimary,
-        child: const Icon(Icons.edit),
+    
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditorPage(
+          api: widget.api,
+          availableTags: _allTags, // 把全局拉取到的标签传递给编辑器
+        ),
       ),
     );
-  }
 
+    // 如果发帖成功并返回 true，自动刷新首页列表展现最新帖子
+    if (result == true) {
+      _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      _refresh();
+    }
+  }
+  
   Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(

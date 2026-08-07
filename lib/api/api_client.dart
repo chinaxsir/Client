@@ -23,7 +23,6 @@ class ApiClient {
       onRequest: (options, handler) async {
         final token = await getToken();
         if (token != null && token.isNotEmpty) {
-          // [核心修复1：Flarum 原生 API 必须使用 Token 前缀，绝对不能用 Bearer，否则所有鉴权操作全部失败！]
           options.headers['Authorization'] = 'Token $token';
         }
         handler.next(options);
@@ -60,10 +59,12 @@ class ApiClient {
     return data;
   }
 
+  // [修改备注：新增 author 参数，并重构筛选参数拼接逻辑，使其支持按作者查找帖子]
   Future<Map<String, dynamic>> getDiscussions({
     int page = 1,
     int pageSize = 20,
     String? tag,
+    String? author, 
     String? sort,
   }) async {
     final query = <String, dynamic>{
@@ -71,10 +72,15 @@ class ApiClient {
       'page[size]': pageSize,
     };
     
-    // [核心修复2：还原 Flarum 官方的标签精确过滤语法，修复侧边栏点击无效的问题]
-    if (tag != null) {
-      query['filter[tag]'] = tag;
+    // 组合多个查询条件 (如 tag:slug author:admin)
+    List<String> filters = [];
+    if (tag != null) filters.add('tag:$tag');
+    if (author != null) filters.add('author:$author');
+
+    if (filters.isNotEmpty) {
+      query['filter[q]'] = filters.join(' ');
     }
+    
     if (sort != null) query['sort'] = sort;
 
     final response = await _dio.get('/api/discussions', queryParameters: query);
@@ -99,7 +105,6 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getTags() async {
-    // [核心修复3：强制要求服务器下发 parent 关系，以便客户端精准识别谁是主标签、谁是二级标签]
     final response = await _dio.get(
       '/api/tags', 
       queryParameters: {'include': 'parent'}

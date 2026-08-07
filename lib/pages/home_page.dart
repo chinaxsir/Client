@@ -54,7 +54,6 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // [修改备注：将拉取全站信息、用户权限和标签树的操作合并，登录状态改变时可统一调用]
   Future<void> _loadAllGlobalData() async {
     _loadForumInfo();
     await _loadCurrentUser();
@@ -66,9 +65,9 @@ class _HomePageState extends State<HomePage> {
     try {
       final res = await widget.api.getForumInfo();
       final title = res['data']?['attributes']?['title'] as String?;
-      if (mounted) setState(() => _siteTitle = title ?? 'XSOP 论坛');
+      if (mounted) setState(() => _siteTitle = title ?? 'XSOP主页');
     } catch (_) {
-      if (mounted) setState(() => _siteTitle = 'XSOP 论坛');
+      if (mounted) setState(() => _siteTitle = 'XSOP主页');
     }
   }
 
@@ -79,7 +78,6 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _allTags.clear();
           _allTags.addAll(parseTags(res));
-          // [修改备注：拉取标签时自动按服务器下发的 position 字段排序]
           _allTags.sort((a, b) => (a.position ?? 999).compareTo(b.position ?? 999));
         });
       }
@@ -184,13 +182,13 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // [修改备注：彻底补全之前可能遗漏的 build 方法主体]
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Text(_siteTitle),
+        // [修改备注：为标题文本增加加粗效果，使其更具层次感]
+        title: Text(_siteTitle, style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [_buildAvatarAction(context)],
       ),
       drawer: _buildDrawer(),
@@ -202,6 +200,8 @@ class _HomePageState extends State<HomePage> {
         onPressed: _onTapCreateDiscussion,
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        // [修改备注：微调悬浮按钮的阴影，使其看起来更轻盈]
+        elevation: 3, 
         child: const Icon(Icons.edit),
       ),
     );
@@ -227,7 +227,6 @@ class _HomePageState extends State<HomePage> {
                 builder: (context) => LoginPage(api: widget.api),
               ),
             );
-            // [修改备注：登录成功后，全局刷新，确保隐藏标签对授权用户即时可见]
             if (loginSuccess == true) {
               _loadAllGlobalData();
             }
@@ -236,21 +235,21 @@ class _HomePageState extends State<HomePage> {
         child: Tooltip(
           message: _currentUser?.username ?? '点击登录',
           child: CircleAvatar(
-            radius: 18,
-            backgroundColor: scheme.primaryContainer,
+            radius: 17,
+            // [修改备注：头像外圈使用极淡的灰色，避免在纯白背景上显得突兀]
+            backgroundColor: Colors.grey.shade100,
             backgroundImage: _currentUser?.avatarUrl != null
                 ? NetworkImage(_currentUser!.avatarUrl!)
                 : null,
             child: _currentUser?.avatarUrl != null
                 ? null
-                : Icon(Icons.person, size: 20, color: scheme.onPrimaryContainer),
+                : Icon(Icons.person, size: 20, color: scheme.primary),
           ),
         ),
       ),
     );
   }
 
-  // [修改备注：重写 Drawer，支持主标签和二级标签的可视化分离渲染]
   Widget _buildDrawer() {
     final scheme = Theme.of(context).colorScheme;
     
@@ -258,6 +257,8 @@ class _HomePageState extends State<HomePage> {
     final secondaryTags = _allTags.where((t) => t.isChild).toList();
 
     return Drawer(
+      // [修改备注：侧边栏也强行指定纯白背景，保持内外视觉一致性]
+      backgroundColor: Colors.white,
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,7 +339,7 @@ class _HomePageState extends State<HomePage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.grey.withOpacity(0.15) : Colors.transparent,
+        color: isSelected ? Colors.grey.withOpacity(0.08) : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListTile(
@@ -375,9 +376,11 @@ class _HomePageState extends State<HomePage> {
     }
     return ListView.separated(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      // [修改备注：取消了垂直的外边距，让列表从顶部直接开始，看起来更紧凑规整]
+      padding: EdgeInsets.zero,
       itemCount: _discussions.length + 1,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      // [修改备注：缩短分割线的左侧缩进，使其与文本左对齐，视觉动线更平滑]
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 64),
       itemBuilder: (context, index) {
         if (index == _discussions.length) return _buildFooter();
         return DiscussionTile(
@@ -452,79 +455,83 @@ class DiscussionTile extends StatelessWidget {
     final replyUser = discussion.lastPostedUser ?? author;
     final replyTime = discussion.lastPostedAt ?? discussion.createdAt;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: onTapAuthor,
-            child: _Avatar(user: author),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: onTap,
-                  child: Text(
-                    discussion.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ),
-                if (discussion.tags.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: discussion.tags.map((t) => GestureDetector(
-                      onTap: () => onTapTag(t.slug),
-                      child: _TagChip(tag: t),
-                    )).toList(),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Row(
+    return InkWell(
+      onTap: onTap,
+      // [修改备注：为每个单元格统一白色背景，修复点击涟漪效果在纯色背景下的显示问题]
+      child: Material(
+        color: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: onTapAuthor,
+                child: _Avatar(user: author),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.chat_bubble_outline, size: 14, color: scheme.outline),
-                    const SizedBox(width: 4),
-                    Text('${discussion.commentCount}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(width: 12),
-                    Icon(Icons.schedule, size: 14, color: scheme.outline),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        replyTime == null ? '—' : formatRelativeTime(replyTime),
-                        style: Theme.of(context).textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    Text(
+                      discussion.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      // [修改备注：稍微调大了一点标题的字体大小和行高，增强可读性]
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            height: 1.3,
+                          ),
                     ),
-                    if (replyUser != null) ...[
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          '@${replyUser.username}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: scheme.outline),
-                        ),
+                    if (discussion.tags.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: discussion.tags.map((t) => GestureDetector(
+                          onTap: () => onTapTag(t.slug),
+                          child: _TagChip(tag: t),
+                        )).toList(),
                       ),
                     ],
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 14, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Text('${discussion.commentCount}',
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                        const SizedBox(width: 16),
+                        Icon(Icons.schedule, size: 14, color: Colors.grey.shade400),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            replyTime == null ? '—' : formatRelativeTime(replyTime),
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (replyUser != null) ...[
+                          const SizedBox(width: 16),
+                          Flexible(
+                            child: Text(
+                              '@${replyUser.username}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -544,11 +551,12 @@ class _Avatar extends StatelessWidget {
     final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
     return CircleAvatar(
       radius: 20,
-      backgroundColor: scheme.primaryContainer,
+      // [修改备注：发帖列表的头像背景色也使用了极淡的灰色代替原本的灰蓝色，显得更明亮]
+      backgroundColor: Colors.grey.shade100,
       backgroundImage: user?.avatarUrl != null ? NetworkImage(user!.avatarUrl!) : null,
       child: user?.avatarUrl != null
           ? null
-          : Text(letter, style: TextStyle(color: scheme.onPrimaryContainer)),
+          : Text(letter, style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w600)),
     );
   }
 }
@@ -560,16 +568,17 @@ class _TagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _parseColor(tag.color) ?? Theme.of(context).colorScheme.primary;
-    final background = Color.lerp(color, Colors.white, 0.88) ?? color;
+    // [修改备注：标签背景调配得更加清透（透明度系数从 0.88 升至 0.92）]
+    final background = Color.lerp(color, Colors.white, 0.92) ?? color;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         tag.name,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w500),
       ),
     );
   }

@@ -1,0 +1,225 @@
+name: Build All Platforms
+
+# 监听 main 分支的推送，只要有代码更新就自动触发双端打包
+on:
+  push:
+    branches: [ 'main' ]
+  workflow_dispatch:
+
+env:
+  APP_NAME: XSOPForum
+
+jobs:
+  # ==========================================
+  # 任务 1：构建 Android APK (在 Ubuntu 上运行)
+  # ==========================================
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          version: '3.29.0'
+          cache: true
+
+      - name: Backup source code
+        run: |
+          mkdir -p assets
+          tar cf src_backup.tar lib/ pubspec.yaml assets/
+
+      - name: Generate platforms and icons
+        run: |
+          rm -rf ios/ android/
+          flutter create . --platforms=android,ios --project-name=xsop_forum 2>&1
+          rm -rf lib/ pubspec.yaml assets/
+          tar xf src_backup.tar
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Build APK
+        run: flutter build apk --release --dart-define=BASE_URL=https://xsop.de
+
+      - name: Rename APK
+        run: |
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/apk_output"
+          mkdir -p "$OUTPUT_DIR"
+          
+          # 统一使用总控流水号
+          TAG_SUFFIX="v1.0.${{ github.run_number }}"
+          FINAL_APK_NAME="Xsop${TAG_SUFFIX}.apk"
+          
+          cp "build/app/outputs/flutter-apk/app-release.apk" "$OUTPUT_DIR/$FINAL_APK_NAME"
+
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Auto Release v1.0.${{ github.run_number }}
+          body: "🚀 全端版本 v1.0.${{ github.run_number }} 已自动构建完成，支持直接下载。"
+          files: build/apk_output/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==========================================
+  # 任务 2：构建 iOS 巨魔 IPA (在 Mac 上运行)
+  # ==========================================
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          version: '3.29.0'
+          cache: true
+
+      - name: Backup source code
+        run: |
+          mkdir -p assets
+          tar cf src_backup.tar lib/ pubspec.yaml assets/
+
+      - name: Generate iOS and icons
+        run: |
+          rm -rf ios/ android/
+          flutter create . --platforms=ios,android --project-name=xsop_forum 2>&1
+          rm -rf lib/ pubspec.yaml assets/
+          tar xf src_backup.tar
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Write Info.plist
+        run: |
+          cat > ios/Runner/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>zh_CN</string>
+              <key>CFBundleDisplayName</key>
+              <string>XSOP</string>
+              <key>CFBundleExecutable</key>
+              <string>$(EXECUTABLE_NAME)</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.xsop.forum</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>$(PRODUCT_NAME)</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>$(FLUTTER_BUILD_NAME)</string>
+              <key>CFBundleVersion</key>
+              <string>$(FLUTTER_BUILD_NUMBER)</string>
+              <key>CFBundleIconName</key>
+              <string>AppIcon</string>
+              <key>CFBundleIcons</key>
+              <dict>
+                  <key>CFBundlePrimaryIcon</key>
+                  <dict>
+                      <key>CFBundleIconFiles</key>
+                      <array>
+                          <string>AppIcon</string>
+                      </array>
+                  </dict>
+              </dict>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UILaunchStoryboardName</key>
+              <string>LaunchScreen</string>
+              <key>UIMainStoryboardFile</key>
+              <string>Main</string>
+              <key>CADisableMinimumFrameDurationOnPhone</key>
+              <true/>
+              <key>UIApplicationSupportsIndirectInputEvents</key>
+              <true/>
+              <key>IPHONEOS_DEPLOYMENT_TARGET</key>
+              <string>15.0</string>
+              <key>NSAppTransportSecurity</key>
+              <dict>
+                  <key>NSAllowsArbitraryLoads</key>
+                  <true/>
+              </dict>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Configure Xcode project (No Sign)
+        run: |
+          XCCONFIG="ios/Flutter/Release.xcconfig"
+          echo "DEVELOPMENT_TEAM = ABCDE12345" >> "$XCCONFIG"
+          echo "CODE_SIGNING_ALLOWED = NO" >> "$XCCONFIG"
+          echo "CODE_SIGNING_REQUIRED = NO" >> "$XCCONFIG"
+          echo "CODE_SIGN_IDENTITY = -" >> "$XCCONFIG"
+
+      - name: Build .app
+        run: |
+          cd ios
+          flutter build ios --no-codesign --dart-define=BASE_URL=https://xsop.de
+
+      - name: Package IPA
+        run: |
+          OUTPUT_DIR="${GITHUB_WORKSPACE}/build/ipa_output"
+          APP_PATH=$(find build ios/build -name "*.app" -not -path "*/.symlinks/*" -type d 2>/dev/null | head -1)
+          
+          cat > ios/Runner/Runner.entitlements <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.developer.ubiquity-kvstore-access</key>
+              <true/>
+              <key>com.apple.developer.kernel.extended-virtual-address-space</key>
+              <true/>
+              <key>com.apple.security.allow-unsigned-executable-memory</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          brew install ldid
+          APP_NAME=$(basename "$APP_PATH" .app)
+          ldid -Sios/Runner/Runner.entitlements "$APP_PATH/"
+          
+          # 统一使用总控流水号
+          TAG_SUFFIX="v1.0.${{ github.run_number }}"
+          FINAL_IPA_NAME="Xsop${TAG_SUFFIX}.ipa"
+
+          mkdir -p "$OUTPUT_DIR"
+          STAGING="${GITHUB_WORKSPACE}/build/staging"
+          mkdir -p "$STAGING/Payload"
+          cp -r "$APP_PATH" "$STAGING/Payload/"
+
+          cd "$STAGING"
+          zip -r "$FINAL_IPA_NAME" Payload/ -x "*.DS_Store"
+          cp "$FINAL_IPA_NAME" "$OUTPUT_DIR/"
+
+      - name: Upload IPA to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Auto Release v1.0.${{ github.run_number }}
+          body: "🚀 全端版本 v1.0.${{ github.run_number }} 已自动构建完成，支持直接下载。"
+          files: build/ipa_output/*.ipa
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

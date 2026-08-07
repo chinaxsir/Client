@@ -9,7 +9,7 @@ XSOP-Forum/
 │   └── build_ios.yml          # GitHub Actions 云构建
 ├── lib/
 │   ├── api/
-│   │   └── api_client.dart    # Flarum API 客户端
+│   │   └── api_client.dart    # API 客户端
 │   ├── models/
 │   │   └── flarum_models.dart # JSON:API 数据模型
 │   ├── pages/

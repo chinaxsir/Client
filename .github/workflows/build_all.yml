@@ -1,3 +1,5 @@
+# 文件位置: .github/workflows/build_all.yml
+
 name: Build All Platforms
 
 on:
@@ -6,15 +8,12 @@ on:
       release_notes:
         description: '请输入本次版本的更新说明 (将自动展示在 Release 页面中)'
         required: false
-        default: '常规体验优化与 Bug 修复'
+        default: '新增通知中心与发帖图片上传功能'
 
 env:
   APP_NAME: XSOPForum
 
 jobs:
-  # ==========================================
-  # 任务 1：构建 Android APK (在 Ubuntu 上运行)
-  # ==========================================
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
@@ -47,7 +46,6 @@ jobs:
           rm -rf lib/ pubspec.yaml assets/
           tar xf src_backup.tar
           
-          # [修改备注：使用 awk 命令，强行向刚生成的 AndroidManifest.xml 中注入 INTERNET 网络访问权限]
           awk '/<manifest/{print;print "    <uses-permission android:name=\"android.permission.INTERNET\"/>";next}1' android/app/src/main/AndroidManifest.xml > tmp.xml && mv tmp.xml android/app/src/main/AndroidManifest.xml
           
           flutter pub get
@@ -78,9 +76,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ==========================================
-  # 任务 2：构建 iOS 巨魔 IPA (在 Mac 上运行)
-  # ==========================================
   build-ios:
     name: Build iOS IPA
     runs-on: macos-latest
@@ -148,6 +143,11 @@ jobs:
               </dict>
               <key>LSRequiresIPhoneOS</key>
               <true/>
+              
+              <!-- [修改备注：关键安全配置！注入相册访问权限声明，防止选图闪退] -->
+              <key>NSPhotoLibraryUsageDescription</key>
+              <string>我们需要访问您的相册，以便您在发帖或回复时能够上传图片。</string>
+              
               <key>UILaunchStoryboardName</key>
               <string>LaunchScreen</string>
               <key>UIMainStoryboardFile</key>

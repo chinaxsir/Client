@@ -9,7 +9,7 @@ import 'package:xsop_forum/pages/discussion_detail_page.dart';
 import 'package:xsop_forum/pages/user_profile_page.dart';
 import 'package:xsop_forum/pages/login_page.dart';
 import 'package:xsop_forum/pages/editor_page.dart';
-import 'package:xsop_forum/pages/notifications_page.dart'; // [修改备注：引入新建的通知页面]
+import 'package:xsop_forum/pages/notifications_page.dart';
 
 class HomePage extends StatefulWidget {
   final ApiClient api;
@@ -190,7 +190,6 @@ class _HomePageState extends State<HomePage> {
         titleSpacing: 0,
         title: Text(_siteTitle, style: const TextStyle(fontWeight: FontWeight.w600)),
         actions: [
-          // [修改备注：头像前方增加了全局通知中心入口按钮]
           IconButton(
             icon: const Icon(Icons.notifications_none, size: 26),
             onPressed: () {
@@ -267,8 +266,9 @@ class _HomePageState extends State<HomePage> {
   Widget _buildDrawer() {
     final scheme = Theme.of(context).colorScheme;
     
-    final primaryTags = _allTags.where((t) => !t.isChild).toList();
-    final secondaryTags = _allTags.where((t) => t.isChild).toList();
+    // [核心配合：使用最新的 isPrimary 判断字段]
+    final primaryTags = _allTags.where((t) => t.isPrimary).toList();
+    final secondaryTags = _allTags.where((t) => !t.isPrimary).toList();
 
     return Drawer(
       backgroundColor: Colors.white,
@@ -318,7 +318,7 @@ class _HomePageState extends State<HomePage> {
                   if (secondaryTags.isNotEmpty) ...[
                     Padding(
                       padding: const EdgeInsets.only(left: 16, top: 16, bottom: 8),
-                      child: Text('二级标签', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+                      child: Text('次级标签', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     ),
                     for (final tag in secondaryTags)
                       _buildDrawerItem(

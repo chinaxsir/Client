@@ -2,8 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
-// [修改备注：引入 main.dart 以便直接使用全局的 apiClient 对象，无需在上一层页面修改传参]
 import 'package:xsop_forum/main.dart'; 
+
+import 'package:xsop_forum/pages/discussion_detail_page.dart'; 
+import 'package:xsop_forum/pages/home_page.dart' show formatRelativeTime, HomePage; // 引入 HomePage 用于彻底重置状态
 
 class UserProfilePage extends StatelessWidget {
   final FlarumUser user;
@@ -15,29 +17,28 @@ class UserProfilePage extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('个人中心'),
-        elevation: 0,
+        title: const Text('个人中心', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
       ),
       body: Column(
         children: [
-          // 顶部背景与头像区域
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 40),
-            decoration: BoxDecoration(
-              color: scheme.primaryContainer.withOpacity(0.3),
-            ),
+            color: Colors.white,
             child: Column(
               children: [
                 CircleAvatar(
                   radius: 45,
-                  backgroundColor: scheme.primary,
+                  backgroundColor: Colors.grey.shade100,
                   backgroundImage: user.avatarUrl != null
                       ? NetworkImage(user.avatarUrl!)
                       : null,
                   child: user.avatarUrl == null
-                      ? Icon(Icons.person, size: 50, color: scheme.onPrimary)
+                      ? Icon(Icons.person, size: 50, color: scheme.primary)
                       : null,
                 ),
                 const SizedBox(height: 16),
@@ -57,28 +58,28 @@ class UserProfilePage extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const Divider(height: 1, thickness: 0.5, color: Color(0xFFE5E5EA)),
           
-          // 功能列表区域
           ListTile(
             leading: const Icon(Icons.history),
             title: const Text('我的发帖'),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
             onTap: () {
-               // [修改备注：为“我的发帖”增加交互反馈提示]
-               ScaffoldMessenger.of(context).showSnackBar(
-                 const SnackBar(content: Text('我的发帖历史功能正在开发中...'))
-               );
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => UserDiscussionsPage(user: user),
+                ),
+              );
             },
           ),
-          const Divider(height: 1),
+          const Divider(height: 1, thickness: 0.5, color: Color(0xFFE5E5EA), indent: 56),
           
           ListTile(
             leading: const Icon(Icons.settings),
             title: const Text('设置'),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
             onTap: () {
-              // [修改备注：将“设置”按钮连接到下方新建的 SettingsPage，打通退出登录闭环]
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -93,23 +94,202 @@ class UserProfilePage extends StatelessWidget {
   }
 }
 
-// [修改备注：新增独立的设置页面，提供退出登录等全局操作]
+
+class UserDiscussionsPage extends StatefulWidget {
+  final FlarumUser user;
+
+  const UserDiscussionsPage({super.key, required this.user});
+
+  @override
+  State<UserDiscussionsPage> createState() => _UserDiscussionsPageState();
+}
+
+class _UserDiscussionsPageState extends State<UserDiscussionsPage> {
+  final List<Discussion> _discussions = [];
+  bool _isLoading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  int _page = 1;
+  String? _error;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      _page = 1;
+      final res = await apiClient.getDiscussions(page: 1, author: widget.user.username);
+      final list = parseDiscussionList(res, apiClient.baseUrl);
+      if (mounted) {
+        setState(() {
+          _discussions
+            ..clear()
+            ..addAll(list.items);
+          _hasMore = list.hasMore;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() {
+        _error = '加载失败，请检查网络';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 &&
+        !_loadingMore &&
+        !_isLoading &&
+        _hasMore &&
+        _error == null) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadMore() async {
+    setState(() => _loadingMore = true);
+    try {
+      final res = await apiClient.getDiscussions(page: _page + 1, author: widget.user.username);
+      final list = parseDiscussionList(res, apiClient.baseUrl);
+      if (mounted) {
+        setState(() {
+          _discussions.addAll(list.items);
+          _hasMore = list.hasMore;
+          _page += 1;
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('我的发帖', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(color: const Color(0xFFE5E5EA), height: 0.5),
+        ),
+      ),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading && _discussions.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _discussions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!),
+            const SizedBox(height: 12),
+            FilledButton.tonal(onPressed: _refresh, child: const Text('重试')),
+          ],
+        ),
+      );
+    }
+    if (_discussions.isEmpty) {
+      return const Center(child: Text('暂无发帖记录', style: TextStyle(color: Colors.grey)));
+    }
+
+    return ListView.separated(
+      controller: _scrollController,
+      padding: EdgeInsets.zero,
+      itemCount: _discussions.length + 1,
+      separatorBuilder: (_, __) => const Divider(height: 1, thickness: 0.5, color: Color(0xFFE5E5EA)),
+      itemBuilder: (context, index) {
+        if (index == _discussions.length) {
+          return _loadingMore
+              ? const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()))
+              : const SizedBox(height: 24);
+        }
+        
+        final discussion = _discussions[index];
+        return InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => DiscussionDetailPage(api: apiClient, discussion: discussion)),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  discussion.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, height: 1.3),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.chat_bubble_outline, size: 14, color: Colors.grey.shade400),
+                    const SizedBox(width: 4),
+                    Text('${discussion.commentCount}', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                    const SizedBox(width: 16),
+                    Icon(Icons.schedule, size: 14, color: Colors.grey.shade400),
+                    const SizedBox(width: 4),
+                    Text(formatRelativeTime(discussion.createdAt), style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('设置'),
+        title: const Text('设置', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(color: const Color(0xFFE5E5EA), height: 0.5),
+        ),
       ),
       body: ListView(
         children: [
-          const ListTile(
-            title: Text('关于 XSOP 论坛'),
-            trailing: Icon(Icons.chevron_right),
-          ),
-          const Divider(height: 1),
+          // [修复1：清理冗余，只有退出登录]
           ListTile(
             title: const Text('退出登录', style: TextStyle(color: Colors.red)),
             leading: const Icon(Icons.exit_to_app, color: Colors.red),
@@ -117,21 +297,26 @@ class SettingsPage extends StatelessWidget {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
+                  backgroundColor: Colors.white,
+                  surfaceTintColor: Colors.transparent,
                   title: const Text('退出登录'),
                   content: const Text('确定要退出当前账号吗？'),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('取消'),
+                      child: const Text('取消', style: TextStyle(color: Colors.grey)),
                     ),
                     FilledButton(
                       style: FilledButton.styleFrom(backgroundColor: Colors.red),
                       onPressed: () async {
-                        // [修改备注：调用全局 apiClient 清除本地 Token，并直接弹回应用首页]
                         await apiClient.logout();
                         if (context.mounted) {
-                          // popUntil 会清空路由栈并回到首页，首页检测到无 Token 会自动变成未登录状态
-                          Navigator.of(context).popUntil((route) => route.isFirst);
+                          // [修复1核心：强行销毁并重建所有路由，退出立马生效，页面自动变成未登录状态]
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(builder: (context) => HomePage(api: apiClient)),
+                            (route) => false,
+                          );
                         }
                       },
                       child: const Text('确定退出'),

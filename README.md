@@ -21,6 +21,8 @@ XSOP-Forum/
 │   │   ├── Runner.entitlements # TrollStore 扩展权限
 │   │   └── AppDelegate.swift  # iOS 入口
 │   └── Podfile                # CocoaPods 配置（已禁签名）
+|── assets
+│   ├── logo.png               #桌面图标
 ├── pubspec.yaml
 └── analysis_options.yaml
 ```

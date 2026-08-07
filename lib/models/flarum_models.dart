@@ -15,8 +15,10 @@ class FlarumTag {
   final String slug;
   final String? description;
   final String? color;
-  final bool isChild; // 是否为二级标签
-  final int? position; // 排序位置
+  final bool isChild; 
+  final int? position; 
+  // [核心修复4：新增发帖权限字段]
+  final bool canStartDiscussion;
 
   FlarumTag({
     required this.id,
@@ -26,6 +28,7 @@ class FlarumTag {
     this.color,
     this.isChild = false,
     this.position,
+    this.canStartDiscussion = true,
   });
 }
 
@@ -57,7 +60,6 @@ class DiscussionList {
   DiscussionList(this.items, this.hasMore);
 }
 
-// 解析方法
 FlarumUser parseUser(Map<String, dynamic> json, String baseUrl) {
   final attrs = json['data']?['attributes'] ?? {};
   String? avatar = attrs['avatarUrl'];
@@ -76,15 +78,22 @@ List<FlarumTag> parseTags(Map<String, dynamic> json) {
   final data = json['data'] as List<dynamic>? ?? [];
   return data.map((item) {
     final attrs = item['attributes'] ?? {};
+    final rels = item['relationships'] ?? {};
+    
+    // [核心修复3 配合：通过分析父级关系，100% 准确地判断该标签是否属于二级子标签]
+    final hasParent = rels['parent'] != null && rels['parent']['data'] != null;
+
     return FlarumTag(
       id: item['id'].toString(),
       name: attrs['name'] ?? '',
       slug: attrs['slug'] ?? '',
       description: attrs['description'],
       color: attrs['color'],
-      // 识别是否为二级标签
-      isChild: attrs['isChild'] == true,
+      // 只要包含父级关系，或者明确标记了 isChild，就一定是二级标签
+      isChild: attrs['isChild'] == true || hasParent,
       position: attrs['position'] as int?,
+      // 获取当前登录用户对该标签是否有发帖权限
+      canStartDiscussion: attrs['canStartDiscussion'] ?? true,
     );
   }).toList();
 }

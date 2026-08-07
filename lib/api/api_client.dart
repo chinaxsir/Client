@@ -3,7 +3,6 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Flarum 论坛 API 客户端
 class ApiClient {
   static const String _tokenKey = 'flarum_token';
   static const String _userIdKey = 'flarum_user_id';
@@ -71,7 +70,6 @@ class ApiClient {
       'page[size]': pageSize,
     };
     
-    // [修改备注：修正 Flarum 的标签过滤参数规则，使用 filter[q]=tag:slug 而不是 filter[tag]]
     if (tag != null) {
       query['filter[q]'] = 'tag:$tag';
     }
@@ -108,12 +106,6 @@ class ApiClient {
     return _asMap(response.data);
   }
 
-  // ==========================================
-  // 核心交互功能 API
-  // ==========================================
-
-  /// 发帖 / 创建私密主题
-  /// [修改备注：重构了 relationships 的拼接逻辑，彻底解决 The operator '[]=' isn't defined 报错]
   Future<Map<String, dynamic>> createDiscussion({
     required String title,
     required String content,
@@ -152,7 +144,6 @@ class ApiClient {
     return _asMap(response.data);
   }
 
-  /// 回帖 (回复某个主题)
   Future<Map<String, dynamic>> createPost(int discussionId, String content) async {
     final data = {
       "data": {
@@ -169,7 +160,6 @@ class ApiClient {
     return _asMap(response.data);
   }
 
-  /// 点赞/取消点赞
   Future<void> likePost(int postId, bool isLiked) async {
     await _dio.patch('/api/posts/$postId', data: {
       "data": {
@@ -180,7 +170,6 @@ class ApiClient {
     });
   }
 
-  /// 举报帖子
   Future<void> reportPost(int postId, String reason, String? detail) async {
     await _dio.post('/api/flags', data: {
       "data": {
@@ -198,13 +187,11 @@ class ApiClient {
     });
   }
 
-  /// 获取通知中心数据
   Future<Map<String, dynamic>> getNotifications() async {
     final response = await _dio.get('/api/notifications');
     return _asMap(response.data);
   }
 
-  /// 小黑屋：封禁/解封用户 (需要管理员权限)
   Future<void> suspendUser(int userId, DateTime? suspendUntil, String? reason) async {
     await _dio.patch('/api/users/$userId', data: {
       "data": {
@@ -218,7 +205,23 @@ class ApiClient {
     });
   }
 
-  // ==========================================
+  // [修改备注：新增基于 fof/upload 的图片上传接口，采用 MultipartFile 形式直传服务器]
+  Future<String?> uploadImage(String filePath) async {
+    final formData = FormData.fromMap({
+      'files[]': await MultipartFile.fromFile(filePath),
+    });
+    
+    // 发送到 fof/upload 的标准端点
+    final response = await _dio.post('/api/fof/upload', data: formData);
+    final data = _asMap(response.data);
+    
+    // 解析返回的文件 URL
+    final files = data['data'] as List<dynamic>?;
+    if (files != null && files.isNotEmpty) {
+       return files.first['attributes']?['url'] as String?;
+    }
+    return null;
+  }
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();

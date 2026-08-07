@@ -1,4 +1,4 @@
-# XSOP Forum — TrollStore 构建指南
+# XSOP Forum — 构建指南
 
 
 ## 📁 项目结构

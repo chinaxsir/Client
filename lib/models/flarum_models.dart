@@ -15,9 +15,8 @@ class FlarumTag {
   final String slug;
   final String? description;
   final String? color;
-  final bool isChild; 
+  final bool isPrimary; // 明确区分主标签和次标签
   final int? position; 
-  // [核心修复4：新增发帖权限字段]
   final bool canStartDiscussion;
 
   FlarumTag({
@@ -26,7 +25,7 @@ class FlarumTag {
     required this.slug,
     this.description,
     this.color,
-    this.isChild = false,
+    this.isPrimary = false,
     this.position,
     this.canStartDiscussion = true,
   });
@@ -80,8 +79,23 @@ List<FlarumTag> parseTags(Map<String, dynamic> json) {
     final attrs = item['attributes'] ?? {};
     final rels = item['relationships'] ?? {};
     
-    // [核心修复3 配合：通过分析父级关系，100% 准确地判断该标签是否属于二级子标签]
+    final pos = attrs['position'];
+    bool hasPosition = false;
+    
+    // [核心修复：极高容错率判定！拦截 API 可能下发的所有形式的空位]
+    if (pos is int) {
+      hasPosition = true;
+    } else if (pos is String && pos.trim().isNotEmpty && pos.trim().toLowerCase() != 'null') {
+      hasPosition = true;
+    } else if (pos != null && pos is! String) {
+      hasPosition = true;
+    }
+
     final hasParent = rels['parent'] != null && rels['parent']['data'] != null;
+    final bool isChild = attrs['isChild'] == true || hasParent;
+    
+    // 只有明确包含 position 数字，且不是子节点的，才被认定为"主标签"
+    final bool isPrimary = hasPosition && !isChild;
 
     return FlarumTag(
       id: item['id'].toString(),
@@ -89,10 +103,8 @@ List<FlarumTag> parseTags(Map<String, dynamic> json) {
       slug: attrs['slug'] ?? '',
       description: attrs['description'],
       color: attrs['color'],
-      // 只要包含父级关系，或者明确标记了 isChild，就一定是二级标签
-      isChild: attrs['isChild'] == true || hasParent,
-      position: attrs['position'] as int?,
-      // 获取当前登录用户对该标签是否有发帖权限
+      isPrimary: isPrimary, // 严格标识
+      position: pos is int ? pos : null,
       canStartDiscussion: attrs['canStartDiscussion'] ?? true,
     );
   }).toList();
@@ -118,12 +130,23 @@ DiscussionList parseDiscussionList(Map<String, dynamic> json, String baseUrl) {
       );
     } else if (item['type'] == 'tags') {
       final attrs = item['attributes'] ?? {};
+      
+      final pos = attrs['position'];
+      bool hasPosition = false;
+      if (pos is int) {
+        hasPosition = true;
+      } else if (pos is String && pos.trim().isNotEmpty && pos.trim().toLowerCase() != 'null') {
+        hasPosition = true;
+      } else if (pos != null && pos is! String) {
+        hasPosition = true;
+      }
+
       tags[item['id'].toString()] = FlarumTag(
         id: item['id'].toString(),
         name: attrs['name'] ?? '',
         slug: attrs['slug'] ?? '',
         color: attrs['color'],
-        isChild: attrs['isChild'] == true,
+        isPrimary: hasPosition && attrs['isChild'] != true,
       );
     }
   }

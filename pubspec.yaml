@@ -21,7 +21,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  dev_dependencies:
+dev_dependencies:
   flutter_test:
     sdk: flutter
   # 添加下面这行依赖

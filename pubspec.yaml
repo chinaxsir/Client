@@ -29,3 +29,12 @@ flutter_launcher_icons:
   ios: true             
   android: true         
   remove_alpha_ios: true
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.4.0
+  shared_preferences: ^2.2.0
+  flutter_widget_from_html: ^0.15.1
+  # 新增系统分享插件
+  share_plus: ^10.1.0

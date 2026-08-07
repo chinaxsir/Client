@@ -105,40 +105,47 @@ class ApiClient {
   }
 
   // ==========================================
-  // [修改备注：新增核心交互功能 API]
+  // 核心交互功能 API
   // ==========================================
 
   /// 发帖 / 创建私密主题
-  /// [tagIds] 必须传入至少一个标签的 ID
-  /// [recipientUserIds] 如果传入了目标用户 ID，则利用 Byobu 插件创建私密主题
+  /// [修改备注：重写了字典拼接逻辑，彻底解决 The operator '[]=' isn't defined 报错]
   Future<Map<String, dynamic>> createDiscussion({
     required String title,
     required String content,
     List<String>? tagIds,
     List<String>? recipientUserIds,
   }) async {
-    final data = {
-      "data": {
-        "type": "discussions",
-        "attributes": {
-          "title": title,
-          "content": content,
-        },
-        "relationships": <String, dynamic>{}
-      }
-    };
+    // 1. 独立构造 relationships 字典
+    final Map<String, dynamic> relationships = {};
 
     if (tagIds != null && tagIds.isNotEmpty) {
-      data["data"]!["relationships"]!["tags"] = {
+      relationships["tags"] = {
         "data": tagIds.map((id) => {"type": "tags", "id": id}).toList()
       };
     }
 
     if (recipientUserIds != null && recipientUserIds.isNotEmpty) {
-      data["data"]!["relationships"]!["recipientUsers"] = {
+      relationships["recipientUsers"] = {
         "data": recipientUserIds.map((id) => {"type": "users", "id": id}).toList()
       };
     }
+
+    // 2. 构造基础 Payload
+    final Map<String, dynamic> payloadData = {
+      "type": "discussions",
+      "attributes": {
+        "title": title,
+        "content": content,
+      }
+    };
+
+    // 3. 安全合并
+    if (relationships.isNotEmpty) {
+      payloadData["relationships"] = relationships;
+    }
+
+    final data = {"data": payloadData};
 
     final response = await _dio.post('/api/discussions', data: data);
     return _asMap(response.data);

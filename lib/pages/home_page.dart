@@ -5,16 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
 
+// [修改备注：导入刚刚新建的帖子详情页和个人中心页，建立页面路由依赖]
+import 'package:xsop_forum/pages/discussion_detail_page.dart';
+import 'package:xsop_forum/pages/user_profile_page.dart';
+
 class HomePage extends StatefulWidget {
   final ApiClient api;
   final String baseUrl;
-  final VoidCallback? onTapAvatar;
+  
+  // [修改备注：由于跳转逻辑移入页面内部实现，去除了原本需要的 onTapAvatar 回调函数定义]
 
   const HomePage({
     super.key,
     required this.api,
     this.baseUrl = 'https://xsop.de',
-    this.onTapAvatar,
   });
 
   @override
@@ -28,7 +32,6 @@ class _HomePageState extends State<HomePage> {
   final List<FlarumTag> _allTags = [];
   FlarumUser? _currentUser;
   
-  // [修改备注：新增了一个状态变量 _siteTitle，默认显示'加载中...'，用于接收动态获取的论坛标题]
   String _siteTitle = '加载中...';
 
   int _page = 1;
@@ -42,7 +45,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _loadForumInfo(); // [修改备注：初始化时调用获取全局信息的方法]
+    _loadForumInfo();
     _loadTags();
     _loadCurrentUser();
     _refresh();
@@ -55,16 +58,14 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // [修改备注：新增了 _loadForumInfo 方法，请求全局数据并解析赋值给 _siteTitle]
   Future<void> _loadForumInfo() async {
     try {
       final res = await widget.api.getForumInfo();
-      // Flarum API 的基本信息存放在 data -> attributes -> title 中
       final title = res['data']?['attributes']?['title'] as String?;
       if (title != null) {
         setState(() => _siteTitle = title);
       } else {
-        setState(() => _siteTitle = 'XSOP'); // 降级备选名
+        setState(() => _siteTitle = 'XSOP'); 
       }
     } catch (_) {
       setState(() => _siteTitle = 'XSOP');
@@ -158,9 +159,8 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        // [修改备注：这里将硬编码的 'Flarum' 替换为了动态请求到的 _siteTitle]
         title: Text(_siteTitle),
-        actions: [_buildAvatarAction()],
+        actions: [_buildAvatarAction(context)],
       ),
       drawer: _buildDrawer(),
       body: RefreshIndicator(
@@ -170,14 +170,29 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildAvatarAction() {
+  // [修改备注：传入了 context 参数以支持 Navigator 页面跳转]
+  Widget _buildAvatarAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: GestureDetector(
-        onTap: widget.onTapAvatar,
+        // [修改备注：实现真实的头像点击跳转逻辑]
+        onTap: () {
+          if (_currentUser != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => UserProfilePage(user: _currentUser!),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('请先登录')),
+            );
+          }
+        },
         child: Tooltip(
-          message: _currentUser?.username ?? '个人中心',
+          message: _currentUser?.username ?? '未登录',
           child: CircleAvatar(
             radius: 18,
             backgroundColor: scheme.primaryContainer,
@@ -266,13 +281,15 @@ class _HomePageState extends State<HomePage> {
         if (index == _discussions.length) return _buildFooter();
         return DiscussionTile(
           discussion: _discussions[index], 
-          // [修改备注：为帖子列表项补充了临时点击事件，后续可以在这里开发跳转帖子详情页的 Navigator 逻辑]
+          // [修改备注：将原本的弹窗替换为打开刚刚新建的 DiscussionDetailPage 帖子详情页]
           onTap: () {
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('正在开发中：${_discussions[index].title} 详情页'),
-                duration: const Duration(seconds: 2),
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => DiscussionDetailPage(
+                  api: widget.api,
+                  discussion: _discussions[index],
+                ),
               ),
             );
           },

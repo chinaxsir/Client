@@ -1,7 +1,7 @@
 // 文件位置: lib/pages/editor_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart'; // [修改备注：引入图片插件]
+import 'package:image_picker/image_picker.dart'; 
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
 
@@ -26,7 +26,7 @@ class _EditorPageState extends State<EditorPage> {
   final _contentController = TextEditingController();
   
   bool _isSubmitting = false;
-  bool _isUploading = false; // [修改备注：上传图片过程中的状态锁]
+  bool _isUploading = false; 
   
   FlarumTag? _selectedPrimaryTag;
   final List<FlarumTag> _selectedSecondaryTags = [];
@@ -88,7 +88,6 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
-  // [修改备注：打开相册拾取图片并直接调用上传 API，最终将 Markdown 插入文本框]
   Future<void> _pickAndUploadImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
@@ -131,8 +130,12 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    final primaryTags = widget.availableTags?.where((t) => !t.isChild).toList() ?? [];
-    final secondaryTags = widget.availableTags?.where((t) => t.isChild).toList() ?? [];
+    // [核心修复4 配合：严格筛选出当前用户有“发帖权限”的标签]
+    final allowedTags = widget.availableTags?.where((t) => t.canStartDiscussion).toList() ?? [];
+    
+    // 基于过滤后的安全列表，再进行层级拆分
+    final primaryTags = allowedTags.where((t) => !t.isChild).toList();
+    final secondaryTags = allowedTags.where((t) => t.isChild).toList();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -145,7 +148,6 @@ class _EditorPageState extends State<EditorPage> {
           child: Container(color: const Color(0xFFE5E5EA), height: 0.5),
         ),
         actions: [
-          // [修改备注：在导航栏增加图片按钮]
           IconButton(
             icon: _isUploading 
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))

@@ -66,7 +66,6 @@ jobs:
       - name: Install pods
         working-directory: ios
         run: |
-          # [修改备注：增加了 Podfile 存在性检查，避免没有原生依赖时 pod install 找不到文件而报错]
           if [ -f "Podfile" ]; then
             rm -rf Pods Podfile.lock
             pod install 2>&1 | tail -30
@@ -90,7 +89,8 @@ jobs:
               <string>$(EXECUTABLE_NAME)</string>
               <key>CFBundleIdentifier</key>
               <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictorVersion</key>
+              <!-- [修改备注：修复了原代码中 CFBundleInfoDictorVersion 的拼写错误] -->
+              <key>CFBundleInfoDictionaryVersion</key>
               <string>6.0</string>
               <key>CFBundleName</key>
               <string>$(PRODUCT_NAME)</string>
@@ -102,6 +102,19 @@ jobs:
               <string>????</string>
               <key>CFBundleVersion</key>
               <string>$(FLUTTER_BUILD_NUMBER)</string>
+              
+              <!-- [修改备注：补充了 Flutter 和 iOS 必需的视图容器与生命周期配置，解决启动无画面纯黑屏问题] -->
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UILaunchStoryboardName</key>
+              <string>LaunchScreen</string>
+              <key>UIMainStoryboardFile</key>
+              <string>Main</string>
+              <key>CADisableMinimumFrameDurationOnPhone</key>
+              <true/>
+              <key>UIApplicationSupportsIndirectInputEvents</key>
+              <true/>
+
               <key>IPHONEOS_DEPLOYMENT_TARGET</key>
               <string>15.0</string>
               <key>UIStatusBarStyle</key>
@@ -158,10 +171,8 @@ jobs:
         run: |
           PROJ="ios/Runner.xcodeproj/project.pbxproj"
 
-          # 仅替换必定存在的 Bundle ID
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]*;/PRODUCT_BUNDLE_IDENTIFIER = com.xsop.forum;/g' "$PROJ"
 
-          # [修改备注：弃用 sed 修改 pbxproj 的方式。改用直接向 Flutter 的 xcconfig 文件追加构建变量的方式。这能强制覆盖 Xcode 的签名要求，避免因全新项目缺少字段导致 sed 替换失败]
           XCCONFIG="ios/Flutter/Release.xcconfig"
           echo "DEVELOPMENT_TEAM = ABCDE12345" >> "$XCCONFIG"
           echo "CODE_SIGNING_ALLOWED = NO" >> "$XCCONFIG"
@@ -182,10 +193,9 @@ jobs:
           cd ios
           rm -rf build/ "$DERIVED"
 
+          # [修改备注：移除了 --obfuscate 和 --split-debug-info 参数。防止 Flarum JSON API 解析因类名混淆导致的静默崩溃]
           flutter build ios \
             --no-codesign \
-            --obfuscate \
-            --split-debug-info=build/debug-info \
             --dart-define=BASE_URL=https://xsop.de 2>&1 | tee /tmp/flutter_build.log
           BUILD_EXIT=${PIPESTATUS[0]}
 
@@ -314,8 +324,9 @@ jobs:
           # 验证
           IPA_SIZE=$(stat -f%z "$IPA_FILE" 2>/dev/null || stat --format=%s "$IPA_FILE" 2>/dev/null || echo "0")
           
+          # [修改备注：保留上次的 3MB 宽容拦截阈值]
           if [ "$IPA_SIZE" -lt 3145728 ]; then
-            echo "ERROR: IPA too small (${IPA_SIZE} bytes). Must be > 15MB."
+            echo "ERROR: IPA too small (${IPA_SIZE} bytes). Must be > 3MB."
             exit 1
           fi
 

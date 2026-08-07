@@ -1,8 +1,9 @@
 name: Build APK for Android
 
+# [修改备注：同理，将安卓打包的触发条件也改为了监听 main 分支的代码提交]
 on:
   push:
-    tags: ['v*']
+    branches: [ 'main' ]
   workflow_dispatch:
     inputs:
       flutter_version:
@@ -16,14 +17,13 @@ env:
 jobs:
   build-apk:
     name: Build Android APK
-    # 安卓打包在 ubuntu 上运行速度最快
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ========== 1. 设置 Java 环境（安卓打包必需） ==========
+      # ========== 1. 设置 Java ==========
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
@@ -70,34 +70,21 @@ jobs:
           OUTPUT_DIR="${GITHUB_WORKSPACE}/build/apk_output"
           mkdir -p "$OUTPUT_DIR"
           
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            TAG_SUFFIX="v0.0.${{ github.run_number }}"
-          else
-            TAG_SUFFIX="${{ github.ref_name }}"
-          fi
-
-          FINAL_APK_NAME="Xsop.apk"
+          # [修改备注：统一使用流水号生成动态版本后缀]
+          TAG_SUFFIX="v1.0.${{ github.run_number }}"
+          FINAL_APK_NAME="Xsop${TAG_SUFFIX}.apk"
           
-          # Flutter 默认的 APK 输出路径
           APK_SOURCE_PATH="build/app/outputs/flutter-apk/app-release.apk"
-          
           cp "$APK_SOURCE_PATH" "$OUTPUT_DIR/$FINAL_APK_NAME"
-          echo "✅ APK created and renamed successfully: $FINAL_APK_NAME"
 
-      # ========== 7. 上传 Artifacts ==========
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Android-APK
-          path: build/apk_output/*.apk
-          retention-days: 90
-
-      # ========== 8. 上传到 GitHub Releases ==========
-      - name: Create Release and Upload APK
+      # ========== 7. 自动创建 Releases 并上传 APK ==========
+      # [修改备注：安卓侧同样自动创建 Release。它会使用与 iOS 侧完全相同的 Tag 名称，GitHub 会自动将 APK 追加到同一个 Release 页面下]
+      - name: Auto Create Release and Upload APK
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: Release ${{ github.ref_name }}
+          tag_name: v1.0.${{ github.run_number }}
+          name: Auto Release v1.0.${{ github.run_number }}
+          body: "🚀 全新版本 v1.0.${{ github.run_number }} 已自动构建完成，支持直接下载安装包。"
           files: build/apk_output/*.apk
           draft: false
           prerelease: false

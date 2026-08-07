@@ -47,15 +47,15 @@ class _EditorPageState extends State<EditorPage> {
         return;
       }
       
-      // [修复2：强制发帖规则 - 必须同时选择主标签和二级标签]
-      final secondaryTags = widget.availableTags?.where((t) => t.canStartDiscussion && t.isChild).toList() ?? [];
+      final allowedTags = widget.availableTags?.where((t) => t.canStartDiscussion).toList() ?? [];
+      final secondaryTags = allowedTags.where((t) => !t.isPrimary).toList();
       
       if (_selectedPrimaryTag == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个主标签 (必选)')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发布失败：至少需要选择 1 个主标签')));
         return;
       }
       if (secondaryTags.isNotEmpty && _selectedSecondaryTags.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个二级标签 (必选)')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发布失败：至少需要选择 1 个次标签')));
         return;
       }
     }
@@ -138,9 +138,12 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 拉取所有允许发帖的标签
     final allowedTags = widget.availableTags?.where((t) => t.canStartDiscussion).toList() ?? [];
-    final primaryTags = allowedTags.where((t) => !t.isChild).toList();
-    final secondaryTags = allowedTags.where((t) => t.isChild).toList();
+    
+    // 基于全新的底层解析逻辑，主次分类将被完美拆解
+    final primaryTags = allowedTags.where((t) => t.isPrimary).toList();
+    final secondaryTags = allowedTags.where((t) => !t.isPrimary).toList();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -195,7 +198,7 @@ class _EditorPageState extends State<EditorPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('选择主标签 (必选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+                    Text('选择主标签 (必选 1 项)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -223,7 +226,7 @@ class _EditorPageState extends State<EditorPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('选择二级标签 (必选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
+                    Text('选择次标签 (至少选 1 项)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,

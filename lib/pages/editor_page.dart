@@ -1,6 +1,7 @@
 // 文件位置: lib/pages/editor_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart'; // [修改备注：引入图片插件]
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
 
@@ -25,8 +26,8 @@ class _EditorPageState extends State<EditorPage> {
   final _contentController = TextEditingController();
   
   bool _isSubmitting = false;
+  bool _isUploading = false; // [修改备注：上传图片过程中的状态锁]
   
-  // [修改备注：严格区分主节点（单选）和二级节点（多选）]
   FlarumTag? _selectedPrimaryTag;
   final List<FlarumTag> _selectedSecondaryTags = [];
 
@@ -45,7 +46,6 @@ class _EditorPageState extends State<EditorPage> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标题不能为空')));
         return;
       }
-      // 严格发帖规则：必须选择主标签
       if (_selectedPrimaryTag == null) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个主标签 (必选)')));
         return;
@@ -56,7 +56,6 @@ class _EditorPageState extends State<EditorPage> {
 
     try {
       if (_isNewPost) {
-        // 合并所选的所有标签 ID 发送
         List<String> finalTagIds = [_selectedPrimaryTag!.id];
         finalTagIds.addAll(_selectedSecondaryTags.map((t) => t.id));
 
@@ -89,6 +88,40 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
+  // [修改备注：打开相册拾取图片并直接调用上传 API，最终将 Markdown 插入文本框]
+  Future<void> _pickAndUploadImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (pickedFile == null) return;
+
+    setState(() => _isUploading = true);
+    
+    try {
+      final url = await widget.api.uploadImage(pickedFile.path);
+      if (url != null) {
+        final currentText = _contentController.text;
+        final selection = _contentController.selection;
+        final imageMarkdown = '\n![图片]($url)\n';
+        
+        if (selection.isValid) {
+          final newText = currentText.replaceRange(selection.start, selection.end, imageMarkdown);
+          _contentController.value = TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(offset: selection.start + imageMarkdown.length),
+          );
+        } else {
+          _contentController.text = currentText + imageMarkdown;
+        }
+      } else {
+         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('上传未能获取到图片链接')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('图片上传失败，请检查图床或 API 设置')));
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -98,18 +131,32 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 拆分标签
     final primaryTags = widget.availableTags?.where((t) => !t.isChild).toList() ?? [];
     final secondaryTags = widget.availableTags?.where((t) => t.isChild).toList() ?? [];
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(_isNewPost ? '发布新主题' : '回复帖子', style: const TextStyle(fontSize: 16)),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        title: Text(_isNewPost ? '发布新主题' : '回复帖子', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(color: const Color(0xFFE5E5EA), height: 0.5),
+        ),
         actions: [
+          // [修改备注：在导航栏增加图片按钮]
+          IconButton(
+            icon: _isUploading 
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.image_outlined),
+            onPressed: _isSubmitting || _isUploading ? null : _pickAndUploadImage,
+            tooltip: '插入图片',
+          ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: FilledButton(
-              onPressed: _isSubmitting ? null : _submit,
+              onPressed: _isSubmitting || _isUploading ? null : _submit,
               child: _isSubmitting 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Text('发送'),
@@ -131,18 +178,17 @@ class _EditorPageState extends State<EditorPage> {
                 ),
               ),
             ),
-            const Divider(height: 1),
+            const Divider(height: 1, thickness: 0.5, color: Color(0xFFE5E5EA)),
             
-            // 选择主标签区域 (必选 - 单选逻辑)
             if (primaryTags.isNotEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: Colors.grey.shade50,
+                color: Colors.white,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('选择主标签 (必选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    Text('选择主标签 (必选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -162,16 +208,15 @@ class _EditorPageState extends State<EditorPage> {
                 ),
               ),
             
-            // 选择二级标签区域 (可选 - 多选逻辑)
             if (secondaryTags.isNotEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: Colors.grey.shade50,
+                color: Colors.white,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('选择二级标签 (可选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    Text('选择二级标签 (可选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -196,7 +241,7 @@ class _EditorPageState extends State<EditorPage> {
                   ],
                 ),
               ),
-            const Divider(height: 1),
+            const Divider(height: 1, thickness: 0.5, color: Color(0xFFE5E5EA)),
           ],
           
           Expanded(

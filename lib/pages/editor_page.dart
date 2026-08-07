@@ -4,11 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:xsop_forum/api/api_client.dart';
 import 'package:xsop_forum/models/flarum_models.dart';
 
-// [修改备注：新建一个通用的富文本编辑器页面，同时支持“发布新主题”和“回复现有帖子”两种模式]
 class EditorPage extends StatefulWidget {
   final ApiClient api;
-  final Discussion? discussion; // 如果为空，表示是发布新主题；如果不为空，表示回复该主题
-  final List<FlarumTag>? availableTags; // 发布新主题时供选择的标签列表
+  final Discussion? discussion; 
+  final List<FlarumTag>? availableTags; 
 
   const EditorPage({
     super.key,
@@ -26,7 +25,10 @@ class _EditorPageState extends State<EditorPage> {
   final _contentController = TextEditingController();
   
   bool _isSubmitting = false;
-  FlarumTag? _selectedTag;
+  
+  // [修改备注：严格区分主节点（单选）和二级节点（多选）]
+  FlarumTag? _selectedPrimaryTag;
+  final List<FlarumTag> _selectedSecondaryTags = [];
 
   bool get _isNewPost => widget.discussion == null;
 
@@ -43,8 +45,9 @@ class _EditorPageState extends State<EditorPage> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标题不能为空')));
         return;
       }
-      if (_selectedTag == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个标签')));
+      // 严格发帖规则：必须选择主标签
+      if (_selectedPrimaryTag == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请至少选择一个主标签 (必选)')));
         return;
       }
     }
@@ -53,22 +56,24 @@ class _EditorPageState extends State<EditorPage> {
 
     try {
       if (_isNewPost) {
-        // 调用发帖 API
+        // 合并所选的所有标签 ID 发送
+        List<String> finalTagIds = [_selectedPrimaryTag!.id];
+        finalTagIds.addAll(_selectedSecondaryTags.map((t) => t.id));
+
         await widget.api.createDiscussion(
           title: _titleController.text.trim(),
           content: content,
-          tagIds: [_selectedTag!.id], // Flarum 发帖必须带标签ID
+          tagIds: finalTagIds, 
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('发布成功！')));
-          Navigator.pop(context, true); // 返回 true 通知上一页刷新列表
+          Navigator.pop(context, true); 
         }
       } else {
-        // 调用回帖 API
         await widget.api.createPost(int.parse(widget.discussion!.id), content);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('回复成功！')));
-          Navigator.pop(context, true); // 返回 true 通知上一页刷新楼层
+          Navigator.pop(context, true); 
         }
       }
     } catch (e) {
@@ -93,9 +98,13 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 拆分标签
+    final primaryTags = widget.availableTags?.where((t) => !t.isChild).toList() ?? [];
+    final secondaryTags = widget.availableTags?.where((t) => t.isChild).toList() ?? [];
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isNewPost ? '发布新主题' : '回复帖子'),
+        title: Text(_isNewPost ? '发布新主题' : '回复帖子', style: const TextStyle(fontSize: 16)),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -110,7 +119,6 @@ class _EditorPageState extends State<EditorPage> {
       ),
       body: Column(
         children: [
-          // 新主题模式下，显示标题输入框和标签选择器
           if (_isNewPost) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -118,40 +126,79 @@ class _EditorPageState extends State<EditorPage> {
                 controller: _titleController,
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 decoration: const InputDecoration(
-                  hintText: '请输入标题...',
+                  hintText: '请输入具有描述性的标题...',
                   border: InputBorder.none,
                 ),
               ),
             ),
             const Divider(height: 1),
-            // 标签选择区域
-            if (widget.availableTags != null && widget.availableTags!.isNotEmpty)
+            
+            // 选择主标签区域 (必选 - 单选逻辑)
+            if (primaryTags.isNotEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 color: Colors.grey.shade50,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: widget.availableTags!.map((tag) {
-                      final isSelected = _selectedTag?.id == tag.id;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('选择主标签 (必选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 0,
+                      children: primaryTags.map((tag) {
+                        final isSelected = _selectedPrimaryTag?.id == tag.id;
+                        return ChoiceChip(
                           label: Text(tag.name),
                           selected: isSelected,
                           onSelected: (selected) {
-                            setState(() => _selectedTag = selected ? tag : null);
+                            setState(() => _selectedPrimaryTag = selected ? tag : null);
                           },
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            
+            // 选择二级标签区域 (可选 - 多选逻辑)
+            if (secondaryTags.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Colors.grey.shade50,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('选择二级标签 (可选)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 0,
+                      children: secondaryTags.map((tag) {
+                        final isSelected = _selectedSecondaryTags.any((t) => t.id == tag.id);
+                        return FilterChip(
+                          label: Text(tag.name),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedSecondaryTags.add(tag);
+                              } else {
+                                _selectedSecondaryTags.removeWhere((t) => t.id == tag.id);
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ),
               ),
             const Divider(height: 1),
           ],
-          // 共用的正文输入区域
+          
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -161,7 +208,7 @@ class _EditorPageState extends State<EditorPage> {
                 expands: true,
                 textAlignVertical: TextAlignVertical.top,
                 decoration: InputDecoration(
-                  hintText: _isNewPost ? '分享你的想法...' : '写下你的回复...',
+                  hintText: _isNewPost ? '分享你的想法（支持 Markdown）...' : '写下你的回复...',
                   border: InputBorder.none,
                 ),
               ),
